@@ -144,7 +144,9 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
         let (chartType, autoDetected, reason) = resolveChartType(
             requested: requestedType,
             data: dataPoints,
-            series: dataSeries
+            series: dataSeries,
+            heatmapData: heatmapData,
+            candlestickData: candlestickData
         )
 
         // Validate data for the chosen chart type
@@ -189,7 +191,9 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
     private func resolveChartType(
         requested: String,
         data: [ChartSpec.DataPoint]?,
-        series: [ChartSpec.DataSeries]?
+        series: [ChartSpec.DataSeries]?,
+        heatmapData: [ChartSpec.HeatmapCell]? = nil,
+        candlestickData: [ChartSpec.CandlestickPoint]? = nil
     ) -> (ChartSpec.ChartType, Bool, String?) {
         // Explicit type requested
         if requested != "auto" {
@@ -202,8 +206,25 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
             }
         }
 
+        // Auto-detect from specialized data fields first
+        if let heatmapData, !heatmapData.isEmpty {
+            return (.heatmap, true, "\(heatmapData.count) heatmap cells provided → heat map")
+        }
+
+        if let candlestickData, !candlestickData.isEmpty {
+            return (.candlestick, true, "\(candlestickData.count) OHLC points provided → candlestick chart")
+        }
+
         // Auto-detect from data shape
         let points = data ?? series?.first?.data ?? []
+
+        // Check for histogram: all numeric values, no labels, >10 points
+        if series == nil && points.count > 10 {
+            let allNumericNoLabels = points.allSatisfy { $0.label == nil && $0.value != nil }
+            if allNumericNoLabels {
+                return (.histogram, true, "\(points.count) raw numeric values without labels → histogram")
+            }
+        }
 
         // Check for scatter data (x/y coordinates)
         if points.allSatisfy({ $0.x != nil && $0.y != nil }) && !points.isEmpty {
@@ -218,18 +239,24 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
             return (.line, true, "Sequential/temporal labels detected → line chart")
         }
 
-        // Check for pie chart conditions
+        // Check for pie/donut chart conditions
         let categoryCount = points.count
-        if categoryCount >= 2 && categoryCount <= 7 && series == nil {
+        if categoryCount >= 2 && series == nil {
             let values = points.compactMap(\.value)
             if values.count == categoryCount && values.allSatisfy({ $0 > 0 }) {
                 // If values look like proportions or parts of a whole
                 let total = values.reduce(0, +)
                 let maxRatio = (values.max() ?? 0) / total
                 // Pie works well when no single slice dominates overwhelmingly
-                // and there aren't too many categories
-                if maxRatio < 0.85 && categoryCount <= 6 {
-                    return (.pie, true, "\(categoryCount) categories with proportional values → pie chart")
+                if maxRatio < 0.85 {
+                    // Many categories (>6) → donut is better than pie
+                    if categoryCount > 6 {
+                        return (.donut, true, "\(categoryCount) categories with proportional values → donut chart (better than pie for 7+ categories)")
+                    }
+                    // Pie for <= 6 categories
+                    if categoryCount <= 6 {
+                        return (.pie, true, "\(categoryCount) categories with proportional values → pie chart")
+                    }
                 }
             }
         }

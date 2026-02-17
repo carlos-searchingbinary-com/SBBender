@@ -340,22 +340,22 @@ struct ChartingSkillTests {
         #expect(spec.autoDetected == true)
     }
 
-    @Test("Auto-detects bar from non-temporal categories")
+    @Test("Auto-detects bar from non-temporal categories with dominant value")
     func testAutoDetectBar() async throws {
         let spec = try await createChart(
             data: [
-                ["label": "Widget", "value": "130"],
-                ["label": "Gadget", "value": "85"],
-                ["label": "Doohickey", "value": "45"],
-                ["label": "Thingamajig", "value": "200"],
-                ["label": "Whatchamacallit", "value": "60"],
-                ["label": "Gizmo", "value": "90"],
-                ["label": "Contraption", "value": "75"],
-                ["label": "Apparatus", "value": "40"],
+                ["label": "Widget", "value": "950"],
+                ["label": "Gadget", "value": "10"],
+                ["label": "Doohickey", "value": "10"],
+                ["label": "Thingamajig", "value": "10"],
+                ["label": "Whatchamacallit", "value": "5"],
+                ["label": "Gizmo", "value": "5"],
+                ["label": "Contraption", "value": "5"],
+                ["label": "Apparatus", "value": "5"],
             ]
         )
 
-        // 8 non-temporal categories → bar (too many for pie)
+        // 8 categories with one dominant value → bar (not donut)
         #expect(spec.type == .bar)
         #expect(spec.autoDetected == true)
     }
@@ -372,6 +372,67 @@ struct ChartingSkillTests {
         #expect(spec.type == .bar)
         #expect(spec.autoDetected == true)
         #expect(spec.reason?.contains("series") == true || spec.reason?.contains("grouped") == true)
+    }
+
+    // MARK: - Auto-Detection: New Types
+
+    @Test("Auto-detects histogram from raw numeric values")
+    func testAutoDetectHistogram() async throws {
+        let values = (0..<15).map { _ in Double.random(in: 0...100) }
+        let dataJSON = values.map { "{\"value\":\($0)}" }.joined(separator: ",")
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: ["data": "[\(dataJSON)]"]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .histogram)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects heatmap from row/column/value data")
+    func testAutoDetectHeatmap() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "heatmapData": "[{\"row\":\"A\",\"column\":\"X\",\"value\":0.9},{\"row\":\"B\",\"column\":\"X\",\"value\":0.5}]"
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .heatmap)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects candlestick from OHLC data")
+    func testAutoDetectCandlestick() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "candlestickData": "[{\"label\":\"Mon\",\"open\":150,\"high\":155,\"low\":148,\"close\":153}]"
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .candlestick)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects donut over pie for 7+ categories")
+    func testAutoDetectDonutOverPie() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "A", "value": "20"],
+                ["label": "B", "value": "18"],
+                ["label": "C", "value": "15"],
+                ["label": "D", "value": "14"],
+                ["label": "E", "value": "13"],
+                ["label": "F", "value": "12"],
+                ["label": "G", "value": "8"],
+            ]
+        )
+        #expect(spec.type == .donut)
+        #expect(spec.autoDetected == true)
     }
 
     // MARK: - Validation Errors
