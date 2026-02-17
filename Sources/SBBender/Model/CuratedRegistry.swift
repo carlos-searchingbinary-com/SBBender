@@ -30,6 +30,7 @@ public struct MCPServerEntry: Sendable, Codable, Identifiable, Equatable {
     public let minModelTier: ModelTier
     public let requiredBins: [String]
     public let tags: [String]
+    public let setupInstructions: String?
 
     /// Check if all required binaries are available on the system.
     public var binsAvailable: Bool {
@@ -54,6 +55,21 @@ public struct SkillEntry: Sendable, Codable, Identifiable, Equatable {
     public let tags: [String]
 }
 
+/// A curated agent template entry from the registry catalog.
+public struct AgentTemplateEntry: Sendable, Codable, Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    public let emoji: String
+    public let gradientHex: [String]
+    public let description: String
+    public let skillIDs: [String]
+    public let instructions: String
+    public let temperature: Float
+    public let enableThinking: Bool
+    public let knowledgeEnabled: Bool
+    public let learningEnabled: Bool
+}
+
 /// A pre-configured bundle combining model, skills, MCP servers, and tools.
 public struct BundleEntry: Sendable, Codable, Identifiable, Equatable {
     public let id: String
@@ -75,9 +91,10 @@ public actor CuratedRegistry {
     private var mcpCache: [MCPServerEntry]?
     private var skillCache: [SkillEntry]?
     private var bundleCache: [BundleEntry]?
+    private var templateCache: [AgentTemplateEntry]?
 
     /// Initialize with a custom base URL (useful for testing with local files).
-    public init(baseURL: URL = URL(string: "https://raw.githubusercontent.com/searchingbinary/SBBender/main/registry")!) {
+    public init(baseURL: URL = URL(string: "https://raw.githubusercontent.com/carlos-searchingbinary-com/SBBender/main/registry")!) {
         self.baseURL = baseURL
     }
 
@@ -120,12 +137,25 @@ public actor CuratedRegistry {
         return entries
     }
 
+    /// Fetch all curated agent templates.
+    public func agentTemplates() async throws -> [AgentTemplateEntry] {
+        if let cached = templateCache { return cached }
+        let entries: [AgentTemplateEntry] = try await fetch("agent-templates.json")
+        templateCache = entries
+        return entries
+    }
+
     // MARK: - Filtered Queries
 
-    /// Models compatible with the given hardware.
+    /// Models compatible with the given hardware, sorted featured-first then by RAM.
     public func recommendedModels(for hardware: HardwareInfo) async throws -> [ModelEntry] {
         let all = try await models()
-        return all.filter { $0.minTier <= hardware.modelTier }
+        return all
+            .filter { $0.minTier <= hardware.modelTier }
+            .sorted { a, b in
+                if a.featured != b.featured { return a.featured }
+                return a.ramRequired < b.ramRequired
+            }
     }
 
     /// Models matching a specific category.
@@ -160,6 +190,7 @@ public actor CuratedRegistry {
         mcpCache = nil
         skillCache = nil
         bundleCache = nil
+        templateCache = nil
     }
 
     // MARK: - Private

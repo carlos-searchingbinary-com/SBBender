@@ -2,18 +2,31 @@
   {
     "id": "filesystem",
     "name": "Filesystem",
-    "description": "Read, write, and search local files and directories",
+    "description": "Read, write, search, and manage files and directories on your Mac",
     "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "/Users"],
+    "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "~"],
     "category": "system",
     "minModelTier": "small",
     "requiredBins": ["npx"],
-    "tags": ["file-access", "essential"]
+    "tags": ["file-access", "essential"],
+    "setupInstructions": "Requires Node.js 18+. Install from https://nodejs.org or run: brew install node. The ~ argument grants access to your home folder — change it to a specific path to restrict access (e.g. ~/Documents)."
+  },
+  {
+    "id": "memory",
+    "name": "Memory",
+    "description": "Persistent knowledge graph that remembers facts, preferences, and context across conversations",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-memory"],
+    "category": "knowledge",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["memory", "knowledge-graph", "essential"],
+    "setupInstructions": "Requires Node.js 18+. No additional setup needed. Memory is stored locally in a JSON file in your home directory. The agent can create entities, add observations, and build relationships between concepts."
   },
   {
     "id": "brave-search",
     "name": "Brave Search",
-    "description": "Web search powered by Brave Search API",
+    "description": "Search the web using Brave Search — get current information, news, and answers",
     "command": "npx",
     "arguments": ["-y", "@modelcontextprotocol/server-brave-search"],
     "environment": {
@@ -22,12 +35,64 @@
     "category": "web",
     "minModelTier": "small",
     "requiredBins": ["npx"],
-    "tags": ["web-search", "research"]
+    "tags": ["web-search", "research"],
+    "setupInstructions": "1. Go to https://brave.com/search/api/ and sign up for a free API key (2,000 queries/month free). 2. Copy your API key. 3. Paste it into the BRAVE_API_KEY field when adding this server."
+  },
+  {
+    "id": "tavily",
+    "name": "Tavily Search",
+    "description": "AI-optimized web search — returns clean, structured answers instead of raw links",
+    "command": "npx",
+    "arguments": ["-y", "tavily-mcp@latest"],
+    "environment": {
+      "TAVILY_API_KEY": ""
+    },
+    "category": "web",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["web-search", "research", "ai-search"],
+    "setupInstructions": "1. Go to https://tavily.com and sign up for a free account (1,000 searches/month free). 2. Copy your API key from the dashboard. 3. Paste it into the TAVILY_API_KEY field. Tavily is built specifically for AI agents — it returns clean, summarized content rather than raw HTML, making it ideal for research tasks."
+  },
+  {
+    "id": "fetch",
+    "name": "Fetch",
+    "description": "Fetch and read web pages, articles, and API responses from any URL",
+    "command": "uvx",
+    "arguments": ["mcp-server-fetch"],
+    "category": "web",
+    "minModelTier": "small",
+    "requiredBins": ["uvx"],
+    "tags": ["http", "web-fetch", "reading"],
+    "setupInstructions": "This is a Python server. Requires Python 3.10+ and uvx. Install uvx: brew install uv (or pip install uv). The server fetches web pages and converts them to readable text for the agent."
+  },
+  {
+    "id": "sequential-thinking",
+    "name": "Sequential Thinking",
+    "description": "Helps the agent think through complex problems step by step with structured reasoning",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "category": "reasoning",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["reasoning", "thinking", "problem-solving"],
+    "setupInstructions": "Requires Node.js 18+. No additional setup needed. This server provides a structured thinking tool that helps agents break down complex problems, revise their reasoning, and reach better conclusions."
+  },
+  {
+    "id": "playwright",
+    "name": "Browser Automation",
+    "description": "Control a web browser — navigate pages, fill forms, click buttons, take screenshots",
+    "command": "npx",
+    "arguments": ["-y", "@anthropic/mcp-server-playwright", "--headless"],
+    "category": "web",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["browser", "automation", "scraping"],
+    "setupInstructions": "Requires Node.js 18+. On first run, Playwright will download a Chromium browser (~150MB). Remove --headless from arguments to see the browser window during automation. Use this for web scraping, form filling, and testing."
   },
   {
     "id": "github",
     "name": "GitHub",
-    "description": "Interact with GitHub repositories, issues, and pull requests",
+    "description": "Browse repos, create issues, review pull requests, and manage GitHub projects",
     "command": "npx",
     "arguments": ["-y", "@modelcontextprotocol/server-github"],
     "environment": {
@@ -36,111 +101,80 @@
     "category": "development",
     "minModelTier": "small",
     "requiredBins": ["npx"],
-    "tags": ["github", "code-review", "development"]
-  },
-  {
-    "id": "postgres",
-    "name": "PostgreSQL",
-    "description": "Query and explore PostgreSQL databases",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-postgres"],
-    "environment": {
-      "POSTGRES_CONNECTION_STRING": ""
-    },
-    "category": "data",
-    "minModelTier": "medium",
-    "requiredBins": ["npx"],
-    "tags": ["database", "sql"]
-  },
-  {
-    "id": "sqlite",
-    "name": "SQLite",
-    "description": "Read and query SQLite databases",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-sqlite"],
-    "category": "data",
-    "minModelTier": "small",
-    "requiredBins": ["npx"],
-    "tags": ["database", "sql"]
-  },
-  {
-    "id": "memory",
-    "name": "Memory",
-    "description": "Persistent knowledge graph for storing and retrieving information",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-memory"],
-    "category": "knowledge",
-    "minModelTier": "small",
-    "requiredBins": ["npx"],
-    "tags": ["memory", "knowledge-graph"]
-  },
-  {
-    "id": "puppeteer",
-    "name": "Puppeteer",
-    "description": "Browser automation for web scraping and interaction",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-puppeteer"],
-    "category": "web",
-    "minModelTier": "medium",
-    "requiredBins": ["npx"],
-    "tags": ["browser", "scraping", "automation"]
-  },
-  {
-    "id": "fetch",
-    "name": "Fetch",
-    "description": "HTTP client for fetching web pages and APIs",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-fetch"],
-    "category": "web",
-    "minModelTier": "small",
-    "requiredBins": ["npx"],
-    "tags": ["http", "api", "web-fetch"]
+    "tags": ["github", "code-review", "development"],
+    "setupInstructions": "1. Go to https://github.com/settings/tokens and create a Personal Access Token (classic). 2. Select scopes: repo, read:org, read:user. 3. Copy the token and paste it into the GITHUB_PERSONAL_ACCESS_TOKEN field."
   },
   {
     "id": "slack",
     "name": "Slack",
-    "description": "Read and send Slack messages, manage channels",
+    "description": "Read and send Slack messages, search conversations, and manage channels",
     "command": "npx",
     "arguments": ["-y", "@modelcontextprotocol/server-slack"],
     "environment": {
-      "SLACK_BOT_TOKEN": ""
+      "SLACK_BOT_TOKEN": "",
+      "SLACK_TEAM_ID": ""
     },
     "category": "communication",
-    "minModelTier": "medium",
-    "requiredBins": ["npx"],
-    "tags": ["slack", "messaging", "communication"]
-  },
-  {
-    "id": "google-drive",
-    "name": "Google Drive",
-    "description": "Access and search Google Drive files",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-gdrive"],
-    "category": "productivity",
-    "minModelTier": "medium",
-    "requiredBins": ["npx"],
-    "tags": ["google-drive", "files", "productivity"]
-  },
-  {
-    "id": "sequential-thinking",
-    "name": "Sequential Thinking",
-    "description": "Dynamic reasoning tool for complex problem-solving",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-    "category": "reasoning",
-    "minModelTier": "medium",
-    "requiredBins": ["npx"],
-    "tags": ["reasoning", "thinking", "problem-solving"]
-  },
-  {
-    "id": "everything",
-    "name": "Everything",
-    "description": "Reference MCP server with prompts, resources, and tools for testing",
-    "command": "npx",
-    "arguments": ["-y", "@modelcontextprotocol/server-everything"],
-    "category": "development",
     "minModelTier": "small",
     "requiredBins": ["npx"],
-    "tags": ["testing", "development", "reference"]
+    "tags": ["slack", "messaging", "communication"],
+    "setupInstructions": "1. Go to https://api.slack.com/apps and click 'Create New App' > 'From scratch'. 2. Under OAuth & Permissions, add Bot Token Scopes: channels:history, channels:read, chat:write, users:read. 3. Install to your workspace and copy the Bot User OAuth Token (starts with xoxb-). 4. Find your Team ID: open Slack in a browser, it's the T-prefixed code in the URL (e.g. T01234ABCD). 5. Paste both values when adding this server."
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "description": "Search, read, and create pages in your Notion workspace — notes, databases, and wikis",
+    "command": "npx",
+    "arguments": ["-y", "@notionhq/notion-mcp-server"],
+    "environment": {
+      "OPENAPI_MCP_HEADERS": ""
+    },
+    "category": "productivity",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["notion", "notes", "productivity", "wiki"],
+    "setupInstructions": "1. Go to https://www.notion.so/my-integrations and create a new integration. 2. Copy the Internal Integration Secret (starts with ntn_). 3. In Notion, share the pages/databases you want accessible with your integration (click Share > Invite > select your integration). 4. Set OPENAPI_MCP_HEADERS to: {\"Authorization\": \"Bearer ntn_YOUR_SECRET\", \"Notion-Version\": \"2022-06-28\"}"
+  },
+  {
+    "id": "obsidian",
+    "name": "Obsidian",
+    "description": "Read, search, and edit notes in your Obsidian vault — your personal knowledge base",
+    "command": "npx",
+    "arguments": ["-y", "obsidian-mcp"],
+    "environment": {
+      "OBSIDIAN_VAULT_PATH": ""
+    },
+    "category": "productivity",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["obsidian", "notes", "knowledge-base", "markdown"],
+    "setupInstructions": "1. Set OBSIDIAN_VAULT_PATH to the full path of your Obsidian vault (e.g. /Users/you/Documents/MyVault). 2. No Obsidian plugins needed — this reads the vault files directly. 3. The agent can search notes, read content, create new notes, and edit existing ones."
+  },
+  {
+    "id": "todoist",
+    "name": "Todoist",
+    "description": "Manage your Todoist tasks — create, complete, organize, and search across projects",
+    "command": "npx",
+    "arguments": ["-y", "@abhiz123/todoist-mcp-server"],
+    "environment": {
+      "TODOIST_API_TOKEN": ""
+    },
+    "category": "productivity",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["todoist", "tasks", "productivity", "todo"],
+    "setupInstructions": "1. Open Todoist Settings > Integrations > Developer. 2. Copy your API token. 3. Paste it into the TODOIST_API_TOKEN field. The agent can create tasks, mark them complete, organize by project, and set due dates."
+  },
+  {
+    "id": "apple-shortcuts",
+    "name": "Apple Shortcuts",
+    "description": "Run any Shortcut on your Mac — automate apps, system actions, and workflows",
+    "command": "npx",
+    "arguments": ["-y", "@anthropic/mcp-server-apple-shortcuts"],
+    "category": "system",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["shortcuts", "automation", "macos"],
+    "setupInstructions": "Requires macOS. No additional setup needed — the server discovers all Shortcuts installed on your Mac. Create Shortcuts in the Shortcuts app, then the agent can run them by name. Great for automating repetitive tasks across apps."
   }
 ]

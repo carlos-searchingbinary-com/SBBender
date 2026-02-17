@@ -27,6 +27,9 @@ struct MarketplaceView: View {
                 .background(Color.orange.opacity(0.1))
             }
 
+            // Container runtime status banner
+            containerRuntimeBanner
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     // Registry search
@@ -112,6 +115,49 @@ struct MarketplaceView: View {
         }
         .task {
             await viewModel.loadInstalled(appState: appState)
+        }
+    }
+
+    // MARK: - Container Runtime Banner
+
+    @ViewBuilder
+    private var containerRuntimeBanner: some View {
+        let status = appState.containerRuntimeStatus
+        switch status {
+        case .ready, .notSupported:
+            EmptyView()
+        case .kernelMissing:
+            HStack(spacing: 8) {
+                Image(systemName: "shippingbox.trianglebadge.exclamationmark")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Container Runtime Not Available")
+                        .font(.caption.weight(.medium))
+                    Text(status.guidanceMessage ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Link("How to Install", destination: URL(string: "https://github.com/apple/container")!)
+                    .font(.caption)
+            }
+            .padding(8)
+            .background(Color.orange.opacity(0.1))
+        case .initFailed:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Container Runtime Error")
+                        .font(.caption.weight(.medium))
+                    Text(status.guidanceMessage ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(8)
+            .background(Color.red.opacity(0.1))
         }
     }
 

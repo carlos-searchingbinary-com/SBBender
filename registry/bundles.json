@@ -42,12 +42,12 @@
   {
     "id": "data-analysis",
     "name": "Data Analysis",
-    "description": "Data processing with database access and shell tools",
+    "description": "Analyze CSV, Excel, JSON, and Parquet files with SQL queries powered by DuckDB",
     "model": "mlx-community/Qwen3-14B-4bit",
     "minTier": "medium",
     "skills": [],
-    "mcpServers": ["filesystem", "sqlite", "postgres"],
-    "nativeTools": ["shell", "web-fetch", "entity-extraction"]
+    "mcpServers": ["filesystem"],
+    "nativeTools": ["data-analysis", "charting", "shell", "web-fetch", "entity-extraction"]
   },
   {
     "id": "meeting-copilot",

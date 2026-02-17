@@ -1,6 +1,10 @@
 import Foundation
 import os
 
+#if canImport(Containerization)
+import Containerization
+#endif
+
 /// Entry in a ClawHub search result.
 public struct SkillListEntry: Sendable, Codable, Equatable {
     public let slug: String
@@ -62,6 +66,17 @@ public actor ClawHubManager {
                 .appendingPathComponent("skills")
         }
     }
+
+    // MARK: - Container Configuration
+
+    #if canImport(Containerization)
+    /// Forward a `ContainerManager` to the underlying pool so containers can be created.
+    ///
+    /// Call this once during app startup after detecting a valid Linux kernel.
+    public func configureContainerManager(_ manager: ContainerManager) async {
+        await pool.setContainerManager(manager)
+    }
+    #endif
 
     // MARK: - Registry Operations
 

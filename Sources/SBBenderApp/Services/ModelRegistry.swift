@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+@preconcurrency import MLXLLM
+@preconcurrency import MLXLMCommon
 
 /// Dynamically fetches available models from each provider's real API.
 /// - MLX: scans local HuggingFace cache + searches HuggingFace Hub
@@ -13,6 +15,9 @@ final class ModelRegistry {
     var mlxSearchResults: [HFModelInfo] = []
     var mlxSearching = false
 
+    /// Download state per model ID
+    var mlxDownloadState: [String: MLXDownloadState] = [:]
+
     var ollamaModels: [OllamaModelInfo] = []
     var ollamaAvailable = false
 
@@ -22,6 +27,13 @@ final class ModelRegistry {
     var deepinfraModels: [String] = []
 
     var errorMessage: String?
+
+    enum MLXDownloadState: Equatable {
+        case idle
+        case downloading
+        case completed
+        case error(String)
+    }
 
     // MARK: - MLX (Local HuggingFace Cache)
 
@@ -84,6 +96,32 @@ final class ModelRegistry {
             errorMessage = "HuggingFace search failed: \(error.localizedDescription)"
             mlxSearchResults = []
         }
+    }
+
+    // MARK: - MLX Download
+
+    /// Download an MLX model from HuggingFace Hub.
+    /// Uses LLMModelFactory which handles caching to ~/.cache/huggingface/hub/
+    func downloadMLXModel(id: String) async {
+        guard mlxDownloadState[id] != .downloading else { return }
+        mlxDownloadState[id] = .downloading
+
+        do {
+            let config = ModelConfiguration(id: id)
+            // loadContainer downloads if not cached, then loads into memory.
+            // We just need the download — the model will be unloaded when the container is released.
+            _ = try await LLMModelFactory.shared.loadContainer(configuration: config)
+            mlxDownloadState[id] = .completed
+            // Refresh local models list to pick up the new download
+            loadMLXLocal()
+        } catch {
+            mlxDownloadState[id] = .error(error.localizedDescription)
+        }
+    }
+
+    /// Check if a model ID is already downloaded locally
+    func isMLXModelDownloaded(_ id: String) -> Bool {
+        mlxLocalModels.contains(id)
     }
 
     // MARK: - Ollama

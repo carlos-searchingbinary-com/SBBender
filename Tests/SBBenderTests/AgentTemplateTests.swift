@@ -357,39 +357,53 @@ struct AgentTemplateE2ETests {
     // MARK: - Data Analyst Template
     // Skills: shell, web-fetch, entity-extraction
 
-    @Test("Data Analyst template: shell data processing + entity extraction")
+    @Test("Data Analyst template: DuckDB data analysis with CSV")
     func testDataAnalyst() async throws {
+        // Create a test CSV file
+        let csvPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent_test_sales_\(UUID().uuidString.prefix(8)).csv").path
+        try """
+        product,region,quantity,unit_price
+        Widget,North,10,9.99
+        Gadget,South,5,24.99
+        Widget,South,3,9.99
+        Doohickey,North,8,14.99
+        Gadget,North,12,24.99
+        """.write(toFile: csvPath, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: csvPath) }
+
         let agent = Agent(
             configuration: AgentConfiguration(
                 name: "Data Analyst",
                 instructions: """
-                You are a data analyst. Help users process, analyze, and visualize data. \
-                Use shell commands for data transformation (awk, sort, jq, etc.). \
-                Extract entities and patterns from datasets.
+                You are a data analyst. Use the analyzeData tool to load and query data files. \
+                When asked to analyze a file: first load it with action 'load', then query with action 'query' using SQL. \
+                Always use the tool — never guess at data.
                 """,
-                generationConfig: GenerationConfig(maxTokens: 512, temperature: 0.4, enableThinking: false),
+                generationConfig: GenerationConfig(maxTokens: 512, temperature: 0.2, enableThinking: false),
                 maxIterations: 6
             ),
             model: Self.mlx,
             nativeTools: [
-                ShellSkill(allowedCommands: ["echo", "wc", "sort", "uniq", "head", "tail", "cat", "grep"]),
+                DataAnalysisSkill(),
                 EntityExtractionSkill(),
-                // WebFetchSkill omitted for tests
             ]
         )
 
-        let result = try await agent.run("""
-        I have this data:
-        "Google CEO Sundar Pichai reported $75B revenue. Microsoft CEO Satya Nadella reported $56B revenue."
-        1. Extract the entities from this text.
-        2. Use shell to echo the revenue numbers and sort them: echo -e "75\\n56" | sort -n
-        """)
+        let result = try await agent.run(
+            """
+            Please analyze this CSV file. First, call analyzeData with these exact parameters:
+            {"action": "load", "filePath": "\(csvPath)", "tableName": "sales"}
+            Then call analyzeData again with:
+            {"action": "query", "query": "SELECT product, SUM(quantity) AS total_qty FROM sales GROUP BY product ORDER BY total_qty DESC"}
+            """
+        )
 
         #expect(result.status == .completed)
         let toolNames = Set(result.toolExecutions.map(\.toolName))
-        #expect(toolNames.count >= 1, "Data analyst should use at least 1 skill, used: \(toolNames)")
+        #expect(toolNames.contains("analyzeData"), "Agent should use analyzeData tool, used: \(toolNames)")
         for exec in result.toolExecutions {
-            #expect(exec.succeeded, "Skill \(exec.toolName) failed: \(exec.error ?? "unknown")")
+            #expect(exec.succeeded, "Tool \(exec.toolName) failed: \(exec.error ?? "unknown")")
         }
     }
 

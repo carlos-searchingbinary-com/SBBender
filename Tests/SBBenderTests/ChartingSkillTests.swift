@@ -1,0 +1,574 @@
+import Testing
+import Foundation
+@testable import SBBender
+
+@Suite("ChartingSkill Tests")
+struct ChartingSkillTests {
+
+    // MARK: - Basics
+
+    @Test("Skill is always available")
+    func testAvailability() async {
+        let skill = ChartingSkill()
+        let available = await skill.isAvailable
+        #expect(available)
+    }
+
+    @Test("No action throws error")
+    func testNoAction() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(text: nil, parameters: [:]))
+        }
+    }
+
+    @Test("Unknown action throws error")
+    func testUnknownAction() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(text: "render", parameters: [:]))
+        }
+    }
+
+    // MARK: - List Types
+
+    @Test("Types action lists all chart types")
+    func testListTypes() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(text: "types", parameters: [:]))
+        #expect(result.output.contains("bar"))
+        #expect(result.output.contains("line"))
+        #expect(result.output.contains("pie"))
+        #expect(result.output.contains("scatter"))
+        #expect(result.output.contains("area"))
+        #expect(result.structuredData["action"] == "types")
+    }
+
+    // MARK: - Bar Chart
+
+    @Test("Explicit bar chart with structured output")
+    func testBarChart() async throws {
+        let spec = try await createChart(
+            type: "bar",
+            title: "Sales by Product",
+            xLabel: "Product",
+            yLabel: "Units Sold",
+            data: [
+                ["label": "Widget", "value": "130"],
+                ["label": "Gadget", "value": "85"],
+                ["label": "Doohickey", "value": "45"],
+            ]
+        )
+
+        #expect(spec.__chart__ == true)
+        #expect(spec.type == .bar)
+        #expect(spec.title == "Sales by Product")
+        #expect(spec.xLabel == "Product")
+        #expect(spec.yLabel == "Units Sold")
+        #expect(spec.autoDetected == false)
+        #expect(spec.data?.count == 3)
+        #expect(spec.data?[0].label == "Widget")
+        #expect(spec.data?[0].value == 130)
+    }
+
+    @Test("Multi-series grouped bar chart")
+    func testGroupedBarChart() async throws {
+        let spec = try await createChartWithSeries(
+            type: "bar",
+            title: "Sales by Product & Region",
+            series: [
+                ["name": "North", "data": [["label": "Widget", "value": 80], ["label": "Gadget", "value": 60]]],
+                ["name": "South", "data": [["label": "Widget", "value": 50], ["label": "Gadget", "value": 25]]],
+            ]
+        )
+
+        #expect(spec.type == .bar)
+        #expect(spec.series?.count == 2)
+        #expect(spec.series?[0].name == "North")
+        #expect(spec.series?[0].data.count == 2)
+        #expect(spec.series?[1].name == "South")
+    }
+
+    // MARK: - Line Chart
+
+    @Test("Explicit line chart with temporal data")
+    func testLineChart() async throws {
+        let spec = try await createChart(
+            type: "line",
+            title: "Monthly Revenue",
+            data: [
+                ["label": "Jan", "value": "1200"],
+                ["label": "Feb", "value": "1350"],
+                ["label": "Mar", "value": "1100"],
+                ["label": "Apr", "value": "1500"],
+            ]
+        )
+
+        #expect(spec.type == .line)
+        #expect(spec.title == "Monthly Revenue")
+        #expect(spec.data?.count == 4)
+        #expect(spec.data?[3].value == 1500)
+    }
+
+    @Test("Multi-series line chart")
+    func testMultiLineChart() async throws {
+        let spec = try await createChartWithSeries(
+            type: "line",
+            title: "Product Trends",
+            series: [
+                ["name": "Widget", "data": [["label": "Q1", "value": 100], ["label": "Q2", "value": 150], ["label": "Q3", "value": 130]]],
+                ["name": "Gadget", "data": [["label": "Q1", "value": 80], ["label": "Q2", "value": 90], ["label": "Q3", "value": 120]]],
+            ]
+        )
+
+        #expect(spec.type == .line)
+        #expect(spec.series?.count == 2)
+    }
+
+    // MARK: - Pie Chart
+
+    @Test("Explicit pie chart with proportional data")
+    func testPieChart() async throws {
+        let spec = try await createChart(
+            type: "pie",
+            title: "Market Share",
+            data: [
+                ["label": "Company A", "value": "45"],
+                ["label": "Company B", "value": "30"],
+                ["label": "Company C", "value": "25"],
+            ]
+        )
+
+        #expect(spec.type == .pie)
+        #expect(spec.title == "Market Share")
+        #expect(spec.data?.count == 3)
+        let total = spec.data!.compactMap(\.value).reduce(0, +)
+        #expect(total == 100.0)
+    }
+
+    @Test("Pie chart rejects negative values")
+    func testPieChartNegativeValues() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "pie",
+                    "data": "[{\"label\":\"A\",\"value\":10},{\"label\":\"B\",\"value\":-5}]",
+                ]
+            ))
+        }
+    }
+
+    @Test("Pie chart rejects series data")
+    func testPieChartRejectsSeries() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "pie",
+                    "series": "[{\"name\":\"S1\",\"data\":[{\"label\":\"A\",\"value\":10}]}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Scatter Plot
+
+    @Test("Explicit scatter chart with x/y data")
+    func testScatterChart() async throws {
+        let spec = try await createChart(
+            type: "scatter",
+            title: "Price vs Quantity",
+            xLabel: "Price ($)",
+            yLabel: "Quantity",
+            scatterData: [
+                ["x": 9.99, "y": 130],
+                ["x": 24.99, "y": 85],
+                ["x": 14.99, "y": 45],
+            ]
+        )
+
+        #expect(spec.type == .scatter)
+        #expect(spec.title == "Price vs Quantity")
+        #expect(spec.xLabel == "Price ($)")
+        #expect(spec.data?.count == 3)
+        #expect(spec.data?[0].x == 9.99)
+        #expect(spec.data?[0].y == 130)
+    }
+
+    @Test("Scatter chart with named points")
+    func testScatterWithNames() async throws {
+        let spec = try await createChart(
+            type: "scatter",
+            title: "Products",
+            scatterData: [
+                ["x": 10, "y": 100, "name": "Widget"],
+                ["x": 25, "y": 50, "name": "Gadget"],
+            ]
+        )
+
+        #expect(spec.data?[0].name == "Widget")
+        #expect(spec.data?[1].name == "Gadget")
+    }
+
+    @Test("Scatter chart rejects label/value data")
+    func testScatterRejectsLabelValue() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "scatter",
+                    "data": "[{\"label\":\"A\",\"value\":10}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Area Chart
+
+    @Test("Explicit area chart")
+    func testAreaChart() async throws {
+        let spec = try await createChart(
+            type: "area",
+            title: "Cumulative Sales",
+            data: [
+                ["label": "Week 1", "value": "100"],
+                ["label": "Week 2", "value": "250"],
+                ["label": "Week 3", "value": "420"],
+                ["label": "Week 4", "value": "600"],
+            ]
+        )
+
+        #expect(spec.type == .area)
+        #expect(spec.data?.count == 4)
+    }
+
+    // MARK: - Auto-Detection
+
+    @Test("Auto-detects scatter from x/y data")
+    func testAutoDetectScatter() async throws {
+        let spec = try await createChart(
+            scatterData: [
+                ["x": 1.0, "y": 2.0],
+                ["x": 3.0, "y": 4.0],
+                ["x": 5.0, "y": 6.0],
+            ]
+        )
+
+        #expect(spec.type == .scatter)
+        #expect(spec.autoDetected == true)
+        #expect(spec.reason?.contains("scatter") == true)
+    }
+
+    @Test("Auto-detects line from temporal labels")
+    func testAutoDetectLineFromMonths() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "Jan", "value": "100"],
+                ["label": "Feb", "value": "120"],
+                ["label": "Mar", "value": "115"],
+                ["label": "Apr", "value": "140"],
+            ]
+        )
+
+        #expect(spec.type == .line)
+        #expect(spec.autoDetected == true)
+        #expect(spec.reason?.contains("temporal") == true || spec.reason?.contains("line") == true)
+    }
+
+    @Test("Auto-detects line from quarter labels")
+    func testAutoDetectLineFromQuarters() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "Q1", "value": "1000"],
+                ["label": "Q2", "value": "1200"],
+                ["label": "Q3", "value": "900"],
+                ["label": "Q4", "value": "1500"],
+            ]
+        )
+
+        #expect(spec.type == .line)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects line from year labels")
+    func testAutoDetectLineFromYears() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "2020", "value": "500"],
+                ["label": "2021", "value": "600"],
+                ["label": "2022", "value": "750"],
+                ["label": "2023", "value": "900"],
+            ]
+        )
+
+        #expect(spec.type == .line)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects pie from few proportional categories")
+    func testAutoDetectPie() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "Chrome", "value": "65"],
+                ["label": "Safari", "value": "19"],
+                ["label": "Firefox", "value": "10"],
+                ["label": "Other", "value": "6"],
+            ]
+        )
+
+        #expect(spec.type == .pie)
+        #expect(spec.autoDetected == true)
+        #expect(spec.reason?.contains("pie") == true)
+    }
+
+    @Test("Auto-detects bar when one category dominates (not pie)")
+    func testAutoDetectBarWhenDominant() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "Leader", "value": "950"],
+                ["label": "Other1", "value": "25"],
+                ["label": "Other2", "value": "25"],
+            ]
+        )
+
+        // One slice at 95% → should NOT be pie, should be bar
+        #expect(spec.type == .bar)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects bar from non-temporal categories")
+    func testAutoDetectBar() async throws {
+        let spec = try await createChart(
+            data: [
+                ["label": "Widget", "value": "130"],
+                ["label": "Gadget", "value": "85"],
+                ["label": "Doohickey", "value": "45"],
+                ["label": "Thingamajig", "value": "200"],
+                ["label": "Whatchamacallit", "value": "60"],
+                ["label": "Gizmo", "value": "90"],
+                ["label": "Contraption", "value": "75"],
+                ["label": "Apparatus", "value": "40"],
+            ]
+        )
+
+        // 8 non-temporal categories → bar (too many for pie)
+        #expect(spec.type == .bar)
+        #expect(spec.autoDetected == true)
+    }
+
+    @Test("Auto-detects grouped bar from multi-series")
+    func testAutoDetectGroupedBar() async throws {
+        let spec = try await createChartWithSeries(
+            series: [
+                ["name": "North", "data": [["label": "Widget", "value": 80], ["label": "Gadget", "value": 60]]],
+                ["name": "South", "data": [["label": "Widget", "value": 50], ["label": "Gadget", "value": 25]]],
+            ]
+        )
+
+        #expect(spec.type == .bar)
+        #expect(spec.autoDetected == true)
+        #expect(spec.reason?.contains("series") == true || spec.reason?.contains("grouped") == true)
+    }
+
+    // MARK: - Validation Errors
+
+    @Test("Chart without data or series throws error")
+    func testChartNoData() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: ["type": "bar", "title": "Empty"]
+            ))
+        }
+    }
+
+    @Test("Invalid data JSON throws error")
+    func testInvalidDataJSON() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: ["data": "not json at all"]
+            ))
+        }
+    }
+
+    @Test("Bar chart without labels throws error")
+    func testBarChartNoLabels() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "bar",
+                    "data": "[{\"x\":1,\"y\":2}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Structured Output Verification
+
+    @Test("Output contains __chart__ marker for chat detection")
+    func testOutputHasChartMarker() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "bar",
+                "data": "[{\"label\":\"A\",\"value\":10},{\"label\":\"B\",\"value\":20}]",
+            ]
+        ))
+
+        #expect(result.output.contains("\"__chart__\":true") || result.output.contains("\"__chart__\" : true"))
+        #expect(result.structuredData["action"] == "chart")
+        #expect(result.structuredData["type"] == "bar")
+
+        // Should be valid JSON that decodes to ChartSpec
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.__chart__ == true)
+        #expect(spec.type == .bar)
+    }
+
+    @Test("Each chart type has correct structured output fields")
+    func testStructuredOutputPerType() async throws {
+        // Bar
+        let bar = try await createChart(type: "bar", data: [["label": "A", "value": "10"]])
+        #expect(bar.type == .bar)
+        #expect(bar.data != nil)
+
+        // Line
+        let line = try await createChart(type: "line", data: [["label": "A", "value": "10"]])
+        #expect(line.type == .line)
+
+        // Pie
+        let pie = try await createChart(type: "pie", data: [["label": "A", "value": "10"], ["label": "B", "value": "20"]])
+        #expect(pie.type == .pie)
+
+        // Scatter
+        let scatter = try await createChart(type: "scatter", scatterData: [["x": 1.0, "y": 2.0]])
+        #expect(scatter.type == .scatter)
+        #expect(scatter.data?[0].x != nil)
+        #expect(scatter.data?[0].y != nil)
+
+        // Area
+        let area = try await createChart(type: "area", data: [["label": "A", "value": "10"]])
+        #expect(area.type == .area)
+    }
+
+    // MARK: - asTool
+
+    @Test("asTool returns valid Tool")
+    func testAsTool() async throws {
+        let skill = ChartingSkill()
+        let tool = skill.asTool()
+        #expect(tool.name == "createChart")
+        #expect(!tool.description.isEmpty)
+
+        let ctx = ToolContext(agentID: "test", sessionID: "test", runID: "test")
+        let output = try await tool.execute(arguments: "{\"action\":\"types\"}", context: ctx)
+        #expect(output.contains("bar"))
+        #expect(output.contains("pie"))
+    }
+
+    @Test("asTool with chart action returns valid ChartSpec JSON")
+    func testAsToolChart() async throws {
+        let skill = ChartingSkill()
+        let tool = skill.asTool()
+        let ctx = ToolContext(agentID: "test", sessionID: "test", runID: "test")
+
+        let args = """
+        {"action":"chart","type":"bar","title":"Test","data":[{"label":"X","value":42}]}
+        """
+        let output = try await tool.execute(arguments: args, context: ctx)
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(output.utf8))
+        #expect(spec.type == .bar)
+        #expect(spec.title == "Test")
+        #expect(spec.data?[0].value == 42)
+    }
+
+    // MARK: - ChartSpec Codable Round-Trip
+
+    @Test("ChartSpec encodes and decodes correctly")
+    func testChartSpecCodable() throws {
+        let original = ChartSpec(
+            type: .pie,
+            title: "Market Share",
+            data: [
+                ChartSpec.DataPoint(label: "A", value: 60),
+                ChartSpec.DataPoint(label: "B", value: 40),
+            ],
+            autoDetected: true,
+            reason: "Test reason"
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+
+        #expect(decoded.__chart__ == true)
+        #expect(decoded.type == .pie)
+        #expect(decoded.title == "Market Share")
+        #expect(decoded.data?.count == 2)
+        #expect(decoded.autoDetected == true)
+        #expect(decoded.reason == "Test reason")
+    }
+
+    // MARK: - Helpers
+
+    private func createChart(
+        type: String? = nil,
+        title: String? = nil,
+        xLabel: String? = nil,
+        yLabel: String? = nil,
+        data: [[String: String]]? = nil,
+        scatterData: [[String: Any]]? = nil
+    ) async throws -> ChartSpec {
+        let skill = ChartingSkill()
+        var params: [String: String] = [:]
+        if let type { params["type"] = type }
+        if let title { params["title"] = title }
+        if let xLabel { params["xLabel"] = xLabel }
+        if let yLabel { params["yLabel"] = yLabel }
+
+        if let data {
+            let points = data.map { dict -> [String: Any] in
+                var point: [String: Any] = [:]
+                if let label = dict["label"] { point["label"] = label }
+                if let value = dict["value"], let num = Double(value) { point["value"] = num }
+                return point
+            }
+            let jsonData = try JSONSerialization.data(withJSONObject: points, options: [])
+            params["data"] = String(data: jsonData, encoding: .utf8)!
+        }
+
+        if let scatterData {
+            let jsonData = try JSONSerialization.data(withJSONObject: scatterData, options: [])
+            params["data"] = String(data: jsonData, encoding: .utf8)!
+        }
+
+        let result = try await skill.execute(input: NativeToolInput(text: "chart", parameters: params))
+        return try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+    }
+
+    private func createChartWithSeries(
+        type: String? = nil,
+        title: String? = nil,
+        series: [[String: Any]]
+    ) async throws -> ChartSpec {
+        let skill = ChartingSkill()
+        var params: [String: String] = [:]
+        if let type { params["type"] = type }
+        if let title { params["title"] = title }
+
+        let jsonData = try JSONSerialization.data(withJSONObject: series, options: [])
+        params["series"] = String(data: jsonData, encoding: .utf8)!
+
+        let result = try await skill.execute(input: NativeToolInput(text: "chart", parameters: params))
+        return try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+    }
+}

@@ -23,6 +23,10 @@ public protocol NativeTool: Sendable {
 
     /// Execute the native tool with the given input.
     func execute(input: NativeToolInput) async throws -> NativeToolResult
+
+    /// Convert this native tool into an LLM-callable Tool.
+    /// Override this to expose a richer parameter schema than the default `input` + `parameters`.
+    func asTool() -> Tool
 }
 
 /// Input to a native tool invocation.

@@ -23,6 +23,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
         .package(url: "https://github.com/apple/containerization.git", from: "0.1.0"),
+        .package(url: "https://github.com/duckdb/duckdb-swift.git", from: "1.0.0"),
     ],
     targets: [
         .target(
@@ -36,6 +37,7 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "Containerization", package: "containerization", condition: .when(platforms: [.macOS])),
+                .product(name: "DuckDB", package: "duckdb-swift"),
             ],
             linkerSettings: [
                 .linkedFramework("NaturalLanguage"),
@@ -55,6 +57,8 @@ let package = Package(
             dependencies: [
                 "SBBender",
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
             ],
             path: "Sources/SBBenderApp"
         ),

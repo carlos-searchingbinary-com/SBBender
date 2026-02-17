@@ -23,6 +23,7 @@ enum SidebarItem: Hashable {
 
 enum ProviderType: String, CaseIterable, Identifiable, Codable {
     case mlx = "mlx"
+    case foundation = "foundation"
     case ollama = "ollama"
     case anthropic = "anthropic"
     case openai = "openai"
@@ -34,6 +35,7 @@ enum ProviderType: String, CaseIterable, Identifiable, Codable {
     var displayName: String {
         switch self {
         case .mlx: "MLX"
+        case .foundation: "Apple Intelligence"
         case .ollama: "Ollama"
         case .anthropic: "Anthropic"
         case .openai: "OpenAI"
@@ -45,9 +47,10 @@ enum ProviderType: String, CaseIterable, Identifiable, Codable {
     var defaultModelID: String {
         switch self {
         case .mlx: "mlx-community/Qwen3-4B-4bit"
+        case .foundation: "apple-intelligence"
         case .ollama: "qwen3:4b"
         case .anthropic: "claude-sonnet-4-5-20250929"
-        case .openai: "gpt-4o"
+        case .openai: "gpt-4.1"
         case .groq: "llama-3.3-70b-versatile"
         case .deepinfra: "meta-llama/Llama-4-Scout-17B-16E-Instruct"
         }
@@ -56,6 +59,7 @@ enum ProviderType: String, CaseIterable, Identifiable, Codable {
     var icon: String {
         switch self {
         case .mlx: "cpu"
+        case .foundation: "apple.logo"
         case .ollama: "server.rack"
         case .anthropic: "cloud"
         case .openai: "cloud.fill"
@@ -67,7 +71,7 @@ enum ProviderType: String, CaseIterable, Identifiable, Codable {
     /// Whether this provider requires an API key.
     var requiresAPIKey: Bool {
         switch self {
-        case .mlx, .ollama: false
+        case .mlx, .ollama, .foundation: false
         case .anthropic, .openai, .groq, .deepinfra: true
         }
     }
@@ -75,8 +79,19 @@ enum ProviderType: String, CaseIterable, Identifiable, Codable {
     /// Whether this provider is a cloud (non-local) provider.
     var isCloud: Bool {
         switch self {
-        case .mlx, .ollama: false
+        case .mlx, .ollama, .foundation: false
         case .anthropic, .openai, .groq, .deepinfra: true
+        }
+    }
+
+    /// Whether this provider is available on the current system.
+    var isAvailableOnSystem: Bool {
+        switch self {
+        case .foundation:
+            if #available(macOS 26, *) { return true }
+            return false
+        default:
+            return true
         }
     }
 }
@@ -266,6 +281,46 @@ struct AgentTemplate: Identifiable {
     let knowledgeEnabled: Bool
     let learningEnabled: Bool
 
+    init(
+        id: String,
+        name: String,
+        emoji: String,
+        gradientHex: [String],
+        description: String,
+        skillIDs: [String],
+        instructions: String,
+        temperature: Float,
+        enableThinking: Bool,
+        knowledgeEnabled: Bool,
+        learningEnabled: Bool
+    ) {
+        self.id = id
+        self.name = name
+        self.emoji = emoji
+        self.gradientHex = gradientHex
+        self.description = description
+        self.skillIDs = skillIDs
+        self.instructions = instructions
+        self.temperature = temperature
+        self.enableThinking = enableThinking
+        self.knowledgeEnabled = knowledgeEnabled
+        self.learningEnabled = learningEnabled
+    }
+
+    init(from entry: AgentTemplateEntry) {
+        self.id = entry.id
+        self.name = entry.name
+        self.emoji = entry.emoji
+        self.gradientHex = entry.gradientHex
+        self.description = entry.description
+        self.skillIDs = entry.skillIDs
+        self.instructions = entry.instructions
+        self.temperature = entry.temperature
+        self.enableThinking = entry.enableThinking
+        self.knowledgeEnabled = entry.knowledgeEnabled
+        self.learningEnabled = entry.learningEnabled
+    }
+
     func toAgentConfig() -> AgentConfig {
         AgentConfig(
             name: name,
@@ -279,101 +334,6 @@ struct AgentTemplate: Identifiable {
             enableThinking: enableThinking
         )
     }
-
-    static let builtIn: [AgentTemplate] = [
-        AgentTemplate(
-            id: "research",
-            name: "Research Assistant",
-            emoji: "🔬",
-            gradientHex: ["#0077B6", "#00B4D8"],
-            description: "Web research, entity extraction, and sentiment analysis",
-            skillIDs: ["web-fetch", "entity-extraction", "sentiment", "language-detection"],
-            instructions: "You are a research assistant. Search the web, extract key entities, analyze sentiment, and provide well-structured summaries with citations.",
-            temperature: 0.5,
-            enableThinking: true,
-            knowledgeEnabled: true,
-            learningEnabled: false
-        ),
-        AgentTemplate(
-            id: "code-helper",
-            name: "Code Helper",
-            emoji: "👨‍💻",
-            gradientHex: ["#2D6A4F", "#74C69D"],
-            description: "Shell commands, web lookup, and code assistance",
-            skillIDs: ["shell", "web-fetch", "language-detection"],
-            instructions: "You are a coding assistant. Help with writing, debugging, and explaining code. Use the shell to run commands when needed. Be precise and concise.",
-            temperature: 0.3,
-            enableThinking: true,
-            knowledgeEnabled: false,
-            learningEnabled: false
-        ),
-        AgentTemplate(
-            id: "macos-automator",
-            name: "macOS Automator",
-            emoji: "⚙️",
-            gradientHex: ["#1B1B3A", "#4A4E69"],
-            description: "AppleScript, shell, shortcuts, calendar, and reminders",
-            skillIDs: ["applescript", "shell", "shortcuts", "calendar", "reminders"],
-            instructions: """
-            You are a macOS automation assistant. You help users automate tasks on their Mac.
-
-            Your capabilities:
-            - **AppleScript**: Write and execute AppleScript to control apps (Finder, Safari, Mail, System Preferences, etc.). This is your primary automation tool.
-            - **Shell commands**: Run terminal commands for file operations, process management, text processing, and system tasks.
-            - **Shortcuts**: List and run existing macOS Shortcuts the user has installed. You cannot create new Shortcuts — suggest the user create them in the Shortcuts app if needed.
-            - **Calendar**: Create, read, update, and delete calendar events.
-            - **Reminders**: Create, read, update, and delete reminders and lists.
-
-            When asked to automate something:
-            1. Choose the best tool for the job (AppleScript for app control, shell for file/system tasks)
-            2. Always confirm before executing destructive actions (deleting files, modifying system settings)
-            3. Explain what each automation step does before running it
-            """,
-            temperature: 0.5,
-            enableThinking: false,
-            knowledgeEnabled: false,
-            learningEnabled: false
-        ),
-        AgentTemplate(
-            id: "writer",
-            name: "Writing Assistant",
-            emoji: "✍️",
-            gradientHex: ["#7209B7", "#B5179E"],
-            description: "Language analysis, sentiment, and creative writing",
-            skillIDs: ["language-detection", "sentiment", "entity-extraction"],
-            instructions: "You are a writing assistant. Help with drafting, editing, and refining text. Analyze tone and sentiment. Provide constructive feedback and alternative phrasings.",
-            temperature: 0.8,
-            enableThinking: false,
-            knowledgeEnabled: false,
-            learningEnabled: false
-        ),
-        AgentTemplate(
-            id: "data-analyst",
-            name: "Data Analyst",
-            emoji: "📊",
-            gradientHex: ["#D00000", "#FFBA08"],
-            description: "Shell data processing, web data, entity extraction",
-            skillIDs: ["shell", "web-fetch", "entity-extraction"],
-            instructions: "You are a data analyst. Help users process, analyze, and visualize data. Use shell commands for data transformation (awk, sort, jq, etc.). Extract entities and patterns from datasets.",
-            temperature: 0.4,
-            enableThinking: true,
-            knowledgeEnabled: true,
-            learningEnabled: false
-        ),
-        AgentTemplate(
-            id: "meeting-copilot",
-            name: "Meeting Copilot",
-            emoji: "🎙️",
-            gradientHex: ["#FF6B6B", "#FFA500"],
-            description: "Transcription, calendar, reminders, and sentiment",
-            skillIDs: ["transcription", "calendar", "reminders", "sentiment"],
-            instructions: "You are a meeting copilot. Transcribe audio, summarize discussions, track action items in reminders, and manage calendar events. Analyze meeting sentiment and participant engagement.",
-            temperature: 0.5,
-            enableThinking: false,
-            knowledgeEnabled: false,
-            learningEnabled: true
-        ),
-    ]
 }
 
 // MARK: - Team Templates

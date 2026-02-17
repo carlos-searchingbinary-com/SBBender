@@ -380,7 +380,7 @@ struct AgentBuilderSheet: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 180, maximum: 220), spacing: 10)], spacing: 10) {
-                    ForEach(AgentTemplate.builtIn) { tmpl in
+                    ForEach(appState.agentTemplates) { tmpl in
                         TemplateCard(template: tmpl, isSelected: name == tmpl.name && emoji == tmpl.emoji) {
                             applyTemplate(tmpl)
                         }
@@ -450,11 +450,15 @@ struct AgentBuilderSheet: View {
             case .anthropic:
                 apiModelPicker(models: appState.modelRegistry.anthropicModels, placeholder: "claude-sonnet-4-5-20250929")
             case .openai:
-                apiModelPicker(models: appState.modelRegistry.openaiModels, placeholder: "gpt-4o")
+                apiModelPicker(models: appState.modelRegistry.openaiModels, placeholder: "gpt-4.1")
             case .groq:
                 apiModelPicker(models: appState.modelRegistry.groqModels, placeholder: "llama-3.3-70b-versatile")
             case .deepinfra:
                 apiModelPicker(models: appState.modelRegistry.deepinfraModels, placeholder: "meta-llama/Llama-4-Scout-17B-16E-Instruct")
+            case .foundation:
+                Text("Uses Apple Intelligence (macOS 26+)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1201,47 +1205,4 @@ private struct TemplateCard: View {
     }
 }
 
-// MARK: - Flow Layout (wrapping pills)
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
-                proposal: .unspecified
-            )
-        }
-    }
-
-    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (positions: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var maxX: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            maxX = max(maxX, x)
-        }
-
-        return (positions, CGSize(width: maxX, height: y + rowHeight))
-    }
-}
+// FlowLayout is defined in AgentChatView.swift as a shared internal type

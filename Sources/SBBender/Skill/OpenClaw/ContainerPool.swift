@@ -3,6 +3,8 @@ import os
 
 #if canImport(Containerization)
 import Containerization
+import ContainerizationExtras
+import ContainerizationOCI
 #endif
 
 /// A managed container handle returned by the pool.
@@ -62,6 +64,12 @@ public actor ContainerPool {
     private var pool: [ContainerProfile: [ManagedContainer]] = [:]
     private var activeCount: Int = 0
 
+    #if canImport(Containerization)
+    /// The container manager used to create Linux containers.
+    /// Set via ``setContainerManager(_:)`` before calling ``acquire(profile:)``.
+    private var containerManager: ContainerManager?
+    #endif
+
     public init(
         imageManager: ContainerImageManager,
         maxPoolSize: Int = 4,
@@ -73,6 +81,16 @@ public actor ContainerPool {
         self.maxAge = maxAge
         self.maxExecutions = maxExecutions
     }
+
+    #if canImport(Containerization)
+    /// Set the ContainerManager used to create Linux containers.
+    ///
+    /// Must be called before ``acquire(profile:)``. The manager handles VM lifecycle
+    /// and OCI image pulling internally.
+    public func setContainerManager(_ manager: ContainerManager) {
+        self.containerManager = manager
+    }
+    #endif
 
     /// Acquire a container matching the given profile.
     ///
@@ -164,18 +182,53 @@ public actor ContainerPool {
         #if canImport(Containerization)
         return try await createLinuxContainer(id: id, profile: profile)
         #else
-        throw SBBenderError.containerNotAvailable("Containerization framework not available")
+        throw SBBenderError.containerNotAvailable("Containerized skills require macOS 26 or later with Apple Containerization support.")
         #endif
     }
 
     #if canImport(Containerization)
     private func createLinuxContainer(id: String, profile: ContainerProfile) async throws -> ManagedContainer {
-        // Create container using Apple Containerization framework
-        // This is a placeholder — the actual API calls depend on the VirtualMachineManager
-        // instance and image store setup which happens at the application level.
-        throw SBBenderError.containerNotAvailable(
-            "Container creation requires VirtualMachineManager — use ContainerizedSkill.execute() for managed lifecycle"
-        )
+        guard var manager = containerManager else {
+            throw SBBenderError.containerNotAvailable(
+                "Linux container runtime not configured. Containerized skills require a Linux kernel to be set up. This is an advanced feature — most skills work without containers."
+            )
+        }
+
+        let reference = profile.imageReference
+        let rootfsSize: UInt64 = 2048 * 1024 * 1024 // 2 GB
+
+        let container = try await manager.create(
+            id,
+            reference: reference,
+            rootfsSizeInBytes: rootfsSize
+        ) { config in
+            config.cpus = profile.cpus
+            config.memoryInBytes = profile.memoryMB * 1024 * 1024
+            config.hostname = id
+
+            config.process.arguments = ["/bin/sh"]
+            config.process.workingDirectory = "/"
+            config.process.environmentVariables = [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "HOME=/root",
+                "LANG=C.UTF-8",
+            ]
+
+            if profile.needsNetwork {
+                config.interfaces.append(try NATInterface(
+                    ipv4Address: try CIDRv4("192.168.64.2/24"),
+                    ipv4Gateway: try IPv4Address("192.168.64.1")
+                ))
+                config.dns = DNS(nameservers: ["8.8.8.8", "1.1.1.1"])
+            }
+        }
+
+        try await container.create()
+        try await container.start()
+
+        self.containerManager = manager
+        Log.container.info("Linux container \(id) started with image \(reference)")
+        return ManagedContainer(id: id, profile: profile, container: container)
     }
     #endif
 
@@ -186,6 +239,11 @@ public actor ContainerPool {
                 try await linuxContainer.stop()
             } catch {
                 Log.container.warning("Failed to stop container \(container.id): \(error)")
+            }
+            // Clean up the container from the manager
+            if var manager = containerManager {
+                try? manager.delete(container.id)
+                self.containerManager = manager
             }
         }
         #endif

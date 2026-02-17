@@ -13,7 +13,6 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab picker
             Picker("Settings", selection: $selectedTab) {
                 ForEach(SettingsTab.allCases, id: \.self) { tab in
                     Text(tab.rawValue).tag(tab)
@@ -23,7 +22,6 @@ struct SettingsView: View {
             .padding(.horizontal)
             .padding(.top, 8)
 
-            // Tab content
             switch selectedTab {
             case .models:
                 ModelsSettingsView()
@@ -40,36 +38,15 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - General Settings (formerly the whole SettingsView)
+// MARK: - General Settings
 
 private struct GeneralSettingsContent: View {
     @Environment(AppState.self) private var appState
 
-    @State private var ollamaURL: String = KeychainService.ollamaURL
-    @State private var defaultProvider: ProviderType = .mlx
-    @State private var defaultModelID: String = "mlx-community/Qwen3-4B-4bit"
     @State private var showClearConfirm = false
 
     var body: some View {
         Form {
-            Section("Defaults") {
-                Picker("Default Provider", selection: $defaultProvider) {
-                    ForEach(ProviderType.allCases) { pt in
-                        Text(pt.displayName).tag(pt)
-                    }
-                }
-                TextField("Default Model ID", text: $defaultModelID)
-                    .font(.system(.body, design: .monospaced))
-            }
-
-            Section("Ollama") {
-                TextField("Base URL", text: $ollamaURL)
-                    .font(.system(.body, design: .monospaced))
-                    .onChange(of: ollamaURL) { _, newValue in
-                        KeychainService.ollamaURL = newValue
-                    }
-            }
-
             Section("Storage") {
                 LabeledContent("Agents", value: "\(appState.agents.count)")
                 LabeledContent("Teams", value: "\(appState.teams.count)")
@@ -96,7 +73,8 @@ private struct GeneralSettingsContent: View {
                 LabeledContent("App", value: "SBBender")
                 LabeledContent("Runtime", value: "Swift 6.2")
                 LabeledContent("Platform", value: "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-                LabeledContent("Hardware Tier", value: appState.hardwareInfo.modelTier.displayName)
+                LabeledContent("Hardware", value: appState.hardwareInfo.chipName)
+                LabeledContent("Tier", value: appState.hardwareInfo.modelTier.displayName)
             }
         }
         .formStyle(.grouped)

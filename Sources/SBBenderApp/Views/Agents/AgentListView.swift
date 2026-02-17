@@ -8,6 +8,8 @@ struct AgentListView: View {
     @State private var selectedTemplate: AgentTemplate?
     @State private var agentToDelete: AgentConfig?
     @State private var lastMessages: [String: String] = [:]
+    @State private var bundles: [BundleEntry] = []
+    @State private var applyingBundleID: String?
 
     private let columns = [
         GridItem(.adaptive(minimum: 260, maximum: 340), spacing: 16)
@@ -20,6 +22,30 @@ struct AgentListView: View {
                 if appState.agents.isEmpty {
                     emptyStateView
                 } else {
+                    // Quick Setup bundles
+                    if !bundles.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Quick Setup")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 20)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(compatibleBundles) { bundle in
+                                        BundleChip(
+                                            bundle: bundle,
+                                            isApplying: applyingBundleID == bundle.id
+                                        ) {
+                                            applyBundle(bundle)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+
                     // Compact template strip
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Create from template")
@@ -28,7 +54,7 @@ struct AgentListView: View {
                             .padding(.horizontal, 20)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(AgentTemplate.builtIn) { template in
+                                ForEach(appState.agentTemplates) { template in
                                     MiniTemplateChip(template: template) {
                                         selectedTemplate = template
                                     }
@@ -119,7 +145,30 @@ struct AgentListView: View {
             Text("Are you sure you want to delete \"\(agent.name)\"? This cannot be undone.")
         }
         .task {
+            await loadBundles()
             await loadLastMessages()
+        }
+    }
+
+    /// Bundles compatible with the user's hardware tier.
+    private var compatibleBundles: [BundleEntry] {
+        let tier = appState.hardwareInfo.modelTier
+        return bundles.filter { $0.minTier <= tier }
+    }
+
+    private func loadBundles() async {
+        do {
+            bundles = try await appState.curatedRegistry.bundles()
+        } catch {
+            // Silently fail — bundles are optional
+        }
+    }
+
+    private func applyBundle(_ bundle: BundleEntry) {
+        applyingBundleID = bundle.id
+        Task {
+            await appState.applyBundle(bundle)
+            applyingBundleID = nil
         }
     }
 
@@ -163,7 +212,7 @@ struct AgentListView: View {
             .padding(.top, 12)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 12)], spacing: 12) {
-                ForEach(AgentTemplate.builtIn) { template in
+                ForEach(appState.agentTemplates) { template in
                     LargeTemplateCard(template: template) {
                         selectedTemplate = template
                     }
@@ -401,48 +450,7 @@ private struct WrappingHStack<Item: Hashable, Content: View>: View {
     }
 }
 
-// MARK: - Flow Layout
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrangeSubviews(proposal: proposal, subviews: subviews).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
-                proposal: .unspecified
-            )
-        }
-    }
-
-    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (positions: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var maxX: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            maxX = max(maxX, x)
-        }
-        return (positions, CGSize(width: maxX, height: y + rowHeight))
-    }
-}
+// FlowLayout is defined in AgentChatView.swift as a shared internal type
 
 // MARK: - Mini Template Chip (compact strip)
 
@@ -533,6 +541,62 @@ private struct LargeTemplateCard: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Bundle Chip
+
+private struct BundleChip: View {
+    let bundle: BundleEntry
+    let isApplying: Bool
+    let onApply: () -> Void
+
+    @State private var isHovered = false
+
+    private var bundleEmoji: String {
+        switch bundle.id {
+        case "starter": return "🚀"
+        case "research-setup": return "🔬"
+        case "developer-setup": return "👨‍💻"
+        case "macos-automation": return "⚙️"
+        case "data-analysis": return "📊"
+        case "meeting-copilot": return "🎙️"
+        case "power-user": return "💎"
+        default: return "📦"
+        }
+    }
+
+    var body: some View {
+        Button(action: onApply) {
+            HStack(spacing: 6) {
+                if isApplying {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text(bundleEmoji)
+                        .font(.subheadline)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(bundle.name)
+                        .font(.caption.weight(.medium))
+                    Text(bundle.description)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isHovered ? Color.accentColor.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isApplying)
         .onHover { isHovered = $0 }
     }
 }

@@ -238,7 +238,7 @@ struct AgentWizardSheet: View {
         }
         let openaiKey = KeychainService.openaiKey
         if !openaiKey.isEmpty {
-            return OpenAIProvider(modelID: "gpt-4o", apiKey: openaiKey)
+            return OpenAIProvider(modelID: "gpt-4.1", apiKey: openaiKey)
         }
         // Fall back to MLX
         return MLXProvider(modelID: "mlx-community/Qwen3-4B-4bit")

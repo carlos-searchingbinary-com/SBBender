@@ -107,6 +107,11 @@ struct RealIntegrationTests {
             await testFullE2EPipeline(model: mlx)
         }
 
+        // ── Phase 13: DataAnalysisSkill + Agent ─────────────────────────
+        if let mlx = mlx {
+            await testDataAnalysisWithAgent(model: mlx)
+        }
+
         // ── Summary ──────────────────────────────────────────────────────
         let totalTime = CFAbsoluteTimeGetCurrent() - totalStart
         printSummary(totalTime: totalTime)
@@ -1156,6 +1161,105 @@ struct RealIntegrationTests {
 
         } catch {
             record("E2E Pipeline", passed: false, duration: 0, detail: error.localizedDescription)
+        }
+    }
+
+    // ======================================================================
+    // MARK: - Phase 13: DataAnalysisSkill + Agent
+    // ======================================================================
+
+    static func testDataAnalysisWithAgent(model: any ModelProvider) async {
+        section("Phase 13: DataAnalysisSkill + Agent (DuckDB)")
+
+        // Create a CSV test file
+        let csvPath = "/tmp/sbbender_test_sales.csv"
+        let csvContent = """
+        product,region,quantity,unit_price,date
+        Widget,North,10,9.99,2024-01-15
+        Gadget,South,5,24.99,2024-01-16
+        Widget,South,3,9.99,2024-01-17
+        Doohickey,North,8,14.99,2024-01-18
+        Gadget,North,12,24.99,2024-01-19
+        Widget,North,7,9.99,2024-01-20
+        Doohickey,South,4,14.99,2024-01-21
+        """
+        do {
+            try csvContent.write(toFile: csvPath, atomically: true, encoding: .utf8)
+        } catch {
+            record("CSV file creation", passed: false, duration: 0, detail: error.localizedDescription)
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: csvPath) }
+
+        // Test 1: DataAnalysisSkill standalone — load + query
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            let skill = DataAnalysisSkill()
+
+            let loadResult = try await skill.execute(input: NativeToolInput(
+                text: "load",
+                parameters: ["filePath": csvPath, "tableName": "sales"]
+            ))
+            let hasSchema = loadResult.output.contains("product") && loadResult.output.contains("quantity")
+
+            let queryResult = try await skill.execute(input: NativeToolInput(
+                text: "query",
+                parameters: ["query": "SELECT product, SUM(quantity) AS total_qty, ROUND(SUM(quantity * unit_price), 2) AS revenue FROM sales GROUP BY product ORDER BY revenue DESC"]
+            ))
+            let hasResults = queryResult.output.contains("Gadget") && queryResult.output.contains("Widget")
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            record("DataAnalysisSkill: load + aggregation query",
+                   passed: hasSchema && hasResults,
+                   duration: elapsed,
+                   detail: "Schema: \(hasSchema), Results: \(hasResults)")
+            print("    Query output:\n\(queryResult.output)")
+        } catch {
+            record("DataAnalysisSkill: load + aggregation query",
+                   passed: false, duration: 0, detail: error.localizedDescription)
+        }
+
+        // Test 2: Agent with DataAnalysisSkill — ask it to analyze the CSV
+        do {
+            let start = CFAbsoluteTimeGetCurrent()
+            let dataSkill = DataAnalysisSkill()
+
+            let agent = Agent(
+                configuration: AgentConfiguration(
+                    name: "DataAgent",
+                    instructions: """
+                    You are a data analyst. Use the analyzeData tool to load and query data files.
+                    When asked to analyze a file:
+                    1. First load it with action 'load'
+                    2. Then query it with action 'query' using SQL
+                    Always use the tool — never guess at data.
+                    """,
+                    generationConfig: GenerationConfig(maxTokens: 500, temperature: 0.2)
+                ),
+                model: model,
+                tools: [],
+                nativeTools: [dataSkill]
+            )
+
+            let result = try await agent.run(
+                "Load the file at \(csvPath) and tell me the total revenue by region. Use the analyzeData tool."
+            )
+            let response = result.content
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+
+            // The agent should have used the tool and provided analysis
+            let mentionsRegion = response.lowercased().contains("north") || response.lowercased().contains("south")
+            let usedTool = result.toolExecutions.count > 0
+
+            record("Agent + DataAnalysisSkill: CSV analysis",
+                   passed: usedTool,
+                   duration: elapsed,
+                   detail: "Used tools: \(result.toolExecutions.count), Mentions regions: \(mentionsRegion)")
+            print("    Agent response (first 500 chars):")
+            print("    \(String(response.prefix(500)))")
+        } catch {
+            record("Agent + DataAnalysisSkill: CSV analysis",
+                   passed: false, duration: 0, detail: error.localizedDescription)
         }
     }
 

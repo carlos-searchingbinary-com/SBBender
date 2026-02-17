@@ -4,176 +4,358 @@ import SBBender
 struct ModelsSettingsView: View {
     @Environment(AppState.self) private var appState
 
-    @State private var mlxSearchQuery = ""
-    @State private var showRecommended = false
     @State private var recommendedModels: [ModelEntry] = []
     @State private var loadingRecommended = false
+    @State private var mlxSearchQuery = ""
 
     // Cloud provider keys
     @State private var anthropicKey: String = KeychainService.anthropicKey
     @State private var openaiKey: String = KeychainService.openaiKey
     @State private var groqKey: String = KeychainService.groqKey
     @State private var deepinfraKey: String = KeychainService.deepinfraKey
+    @State private var ollamaURL: String = KeychainService.ollamaURL
     @State private var keySaveMessage: String?
 
+    // HuggingFace search
+    @State private var showHFSearch = false
+
+    private var hasLocalModels: Bool {
+        !appState.modelRegistry.mlxLocalModels.isEmpty
+    }
+
     var body: some View {
-        Form {
-            hardwareSection
-            mlxSection
-            ollamaSection
-            cloudProvidersSection
-        }
-        .formStyle(.grouped)
-    }
+        ScrollView {
+            VStack(spacing: 0) {
+                hardwareCard
+                    .padding(.horizontal)
+                    .padding(.top, 12)
 
-    // MARK: - Hardware Info Card
-
-    @ViewBuilder
-    private var hardwareSection: some View {
-        Section {
-            let hw = appState.hardwareInfo
-            HStack(spacing: 16) {
-                Image(systemName: "memorychip")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(hw.chipName)
-                        .font(.headline)
-                    HStack(spacing: 12) {
-                        Label("\(hw.totalRAMGB) GB RAM", systemImage: "memorychip")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Label(String(format: "%.0f GB GPU", hw.gpuMemoryGB), systemImage: "gpu")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                tierBadge(hw.modelTier)
-            }
-            .padding(.vertical, 4)
-        } header: {
-            Text("Your Hardware")
-        } footer: {
-            Text("Model recommendations are based on your Mac's specifications.")
-        }
-    }
-
-    // MARK: - MLX Local Models
-
-    @ViewBuilder
-    private var mlxSection: some View {
-        Section("Local Models (MLX)") {
-            let localModels = appState.modelRegistry.mlxLocalModels
-            if localModels.isEmpty {
-                HStack {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                    Text("No local MLX models found in ~/.cache/huggingface/hub/")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(localModels, id: \.self) { model in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(model.components(separatedBy: "/").last ?? model)
-                                .font(.body.weight(.medium))
-                            Text(model)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-                    }
-                }
-            }
-
-            // Browse recommended
-            DisclosureGroup("Browse Recommended", isExpanded: $showRecommended) {
-                if loadingRecommended {
-                    ProgressView("Loading recommendations...")
-                        .font(.caption)
-                } else if recommendedModels.isEmpty {
-                    Text("No recommendations available.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if hasLocalModels {
+                    normalStateContent
                 } else {
-                    ForEach(recommendedModels) { model in
-                        recommendedModelRow(model)
-                    }
-                }
-            }
-            .onChange(of: showRecommended) { _, expanded in
-                if expanded && recommendedModels.isEmpty {
-                    loadRecommendedModels()
-                }
-            }
-
-            // Search HuggingFace
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search HuggingFace for MLX models...", text: $mlxSearchQuery)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        Task { await appState.modelRegistry.searchMLXHub(query: mlxSearchQuery) }
-                    }
-                if appState.modelRegistry.mlxSearching {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-
-            let results = appState.modelRegistry.mlxSearchResults
-            if !results.isEmpty {
-                ForEach(results) { result in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(result.displayName)
-                                .font(.body.weight(.medium))
-                            Text(result.modelId)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if let dl = result.downloads, dl > 0 {
-                            Text(formatDownloads(dl))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        if appState.modelRegistry.mlxLocalModels.contains(result.modelId) {
-                            Text("Downloaded")
-                                .font(.caption2)
-                                .foregroundStyle(.green)
-                        }
-                    }
+                    emptyStateContent
                 }
             }
         }
+        .task {
+            await loadRecommendedModels()
+        }
     }
 
-    // MARK: - Ollama
+    // MARK: - Hardware Card
 
-    @ViewBuilder
+    private var hardwareCard: some View {
+        let hw = appState.hardwareInfo
+        return HStack(spacing: 14) {
+            Image(systemName: "desktopcomputer")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hw.chipName)
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    Text("\(hw.totalRAMGB) GB")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("GPU \(String(format: "%.0f", hw.gpuMemoryGB)) GB")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            tierBadge(hw.modelTier)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: - Empty State (no local models)
+
+    private var emptyStateContent: some View {
+        VStack(spacing: 20) {
+            // Hero
+            VStack(spacing: 8) {
+                Text("Get started")
+                    .font(.title2.weight(.semibold))
+                Text("Download a model to run AI locally on your Mac.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 24)
+
+            // Featured picks
+            if loadingRecommended {
+                ProgressView()
+                    .padding(40)
+            } else {
+                let featured = recommendedModels.filter { $0.featured && $0.provider == "mlx" }.prefix(3)
+                VStack(spacing: 10) {
+                    ForEach(Array(featured)) { model in
+                        modelCard(model, prominent: true)
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            Divider()
+                .padding(.horizontal)
+
+            // Ollama + Cloud below
+            ollamaSection
+                .padding(.horizontal)
+            cloudProvidersSection
+                .padding(.horizontal)
+
+            Spacer(minLength: 20)
+        }
+    }
+
+    // MARK: - Normal State (has local models)
+
+    private var normalStateContent: some View {
+        VStack(spacing: 16) {
+            // Downloaded models
+            settingsSection("Downloaded Models") {
+                ForEach(appState.modelRegistry.mlxLocalModels, id: \.self) { model in
+                    downloadedModelRow(model)
+                }
+            }
+
+            // More models for your Mac
+            settingsSection("More Models for Your Mac") {
+                if loadingRecommended {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading recommendations...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                } else {
+                    let notDownloaded = recommendedModels.filter {
+                        $0.provider == "mlx" && !appState.modelRegistry.isMLXModelDownloaded($0.id)
+                    }
+                    if notDownloaded.isEmpty {
+                        HStack {
+                            Image(systemName: "checkmark.circle")
+                                .foregroundStyle(.green)
+                            Text("All recommended models downloaded!")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        ForEach(notDownloaded) { model in
+                            modelCard(model, prominent: false)
+                        }
+                    }
+                }
+            }
+
+            // HuggingFace search (power user)
+            settingsSection("Search HuggingFace") {
+                DisclosureGroup("Find more MLX models", isExpanded: $showHFSearch) {
+                    VStack(spacing: 8) {
+                        HStack {
+                            TextField("Search MLX models...", text: $mlxSearchQuery)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit {
+                                    Task { await appState.modelRegistry.searchMLXHub(query: mlxSearchQuery) }
+                                }
+                            if appState.modelRegistry.mlxSearching {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+
+                        ForEach(appState.modelRegistry.mlxSearchResults) { result in
+                            hfSearchResultRow(result)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+                .padding(.horizontal)
+
+            ollamaSection
+                .padding(.horizontal)
+            cloudProvidersSection
+                .padding(.horizontal)
+
+            Spacer(minLength: 20)
+        }
+    }
+
+    // MARK: - Model Card
+
+    private func modelCard(_ model: ModelEntry, prominent: Bool) -> some View {
+        let isDownloaded = appState.modelRegistry.isMLXModelDownloaded(model.id)
+        let downloadState = appState.modelRegistry.mlxDownloadState[model.id] ?? .idle
+
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(model.name)
+                        .font(prominent ? .body.weight(.semibold) : .body.weight(.medium))
+                    if model.featured {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                    }
+                    Text(model.parameterSize)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(.blue.opacity(0.12)))
+                        .foregroundStyle(.blue)
+                }
+                Text(model.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(model.category)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("\(model.ramRequired) GB RAM")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+
+            if isDownloaded || downloadState == .completed {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else if downloadState == .downloading {
+                ProgressView()
+                    .controlSize(.small)
+            } else if case .error(let msg) = downloadState {
+                VStack(spacing: 2) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                    Text("Failed")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+                .help(msg)
+            } else {
+                Button("Download") {
+                    Task { await appState.modelRegistry.downloadMLXModel(id: model.id) }
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(prominent ? 14 : 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(prominent ? Color.accentColor.opacity(0.04) : Color.secondary.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(prominent ? Color.accentColor.opacity(0.15) : .clear, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Downloaded Model Row
+
+    private func downloadedModelRow(_ modelID: String) -> some View {
+        let shortName = modelID.components(separatedBy: "/").last ?? modelID
+        return HStack {
+            Image(systemName: "cpu")
+                .foregroundStyle(.green)
+                .font(.caption)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(shortName)
+                    .font(.body.weight(.medium))
+                Text(modelID)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - HF Search Result Row
+
+    private func hfSearchResultRow(_ result: HFModelInfo) -> some View {
+        let isDownloaded = appState.modelRegistry.isMLXModelDownloaded(result.modelId)
+        let downloadState = appState.modelRegistry.mlxDownloadState[result.modelId] ?? .idle
+
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.displayName)
+                    .font(.body.weight(.medium))
+                Text(result.modelId)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let dl = result.downloads, dl > 0 {
+                Text(formatDownloads(dl))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if isDownloaded || downloadState == .completed {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else if downloadState == .downloading {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button("Download") {
+                    Task { await appState.modelRegistry.downloadMLXModel(id: result.modelId) }
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
+    }
+
+    // MARK: - Ollama Section
+
     private var ollamaSection: some View {
-        Section("Ollama Models") {
-            HStack {
+        settingsSection("Ollama") {
+            HStack(spacing: 8) {
                 Image(systemName: appState.modelRegistry.ollamaAvailable ? "circle.fill" : "circle")
                     .foregroundStyle(appState.modelRegistry.ollamaAvailable ? .green : .red)
-                    .font(.caption)
+                    .font(.caption2)
                 Text(appState.modelRegistry.ollamaAvailable ? "Connected" : "Not running")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Refresh") {
                     Task { await appState.modelRegistry.loadOllamaModels() }
                 }
-                .controlSize(.small)
+                .controlSize(.mini)
+            }
+
+            HStack {
+                Text("Base URL")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("http://localhost:11434", text: $ollamaURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                    .onChange(of: ollamaURL) { _, newValue in
+                        KeychainService.ollamaURL = newValue
+                    }
             }
 
             let models = appState.modelRegistry.ollamaModels
@@ -181,18 +363,16 @@ struct ModelsSettingsView: View {
                 ForEach(models) { model in
                     HStack {
                         Text(model.name)
-                            .font(.body.weight(.medium))
-                        if let details = model.details {
-                            if let ps = details.parameterSize {
-                                Text(ps)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            .font(.caption.weight(.medium))
+                        if let details = model.details, let ps = details.parameterSize {
+                            Text(ps)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         if !model.sizeLabel.isEmpty {
                             Text(model.sizeLabel)
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -203,55 +383,47 @@ struct ModelsSettingsView: View {
 
     // MARK: - Cloud Providers
 
-    @ViewBuilder
     private var cloudProvidersSection: some View {
-        Section("Cloud Providers") {
+        settingsSection("Cloud Providers") {
             providerKeyRow(
-                name: "Anthropic",
-                icon: "cloud",
+                name: "Anthropic", icon: "cloud",
                 key: $anthropicKey,
                 onSave: {
                     KeychainService.anthropicKey = anthropicKey
                     keySaveMessage = "Anthropic key saved"
                     Task { await appState.modelRegistry.loadAnthropicModels(apiKey: anthropicKey) }
                 },
-                models: appState.modelRegistry.anthropicModels
+                modelCount: appState.modelRegistry.anthropicModels.count
             )
-
             providerKeyRow(
-                name: "OpenAI",
-                icon: "cloud.fill",
+                name: "OpenAI", icon: "cloud.fill",
                 key: $openaiKey,
                 onSave: {
                     KeychainService.openaiKey = openaiKey
                     keySaveMessage = "OpenAI key saved"
                     Task { await appState.modelRegistry.loadOpenAIModels(apiKey: openaiKey) }
                 },
-                models: appState.modelRegistry.openaiModels
+                modelCount: appState.modelRegistry.openaiModels.count
             )
-
             providerKeyRow(
-                name: "Groq",
-                icon: "bolt.fill",
+                name: "Groq", icon: "bolt.fill",
                 key: $groqKey,
                 onSave: {
                     KeychainService.groqKey = groqKey
                     keySaveMessage = "Groq key saved"
                     Task { await appState.modelRegistry.loadGroqModels(apiKey: groqKey) }
                 },
-                models: appState.modelRegistry.groqModels
+                modelCount: appState.modelRegistry.groqModels.count
             )
-
             providerKeyRow(
-                name: "DeepInfra",
-                icon: "cloud.bolt",
+                name: "DeepInfra", icon: "cloud.bolt",
                 key: $deepinfraKey,
                 onSave: {
                     KeychainService.deepinfraKey = deepinfraKey
                     keySaveMessage = "DeepInfra key saved"
                     Task { await appState.modelRegistry.loadDeepInfraModels(apiKey: deepinfraKey) }
                 },
-                models: appState.modelRegistry.deepinfraModels
+                modelCount: appState.modelRegistry.deepinfraModels.count
             )
 
             if let msg = keySaveMessage {
@@ -261,92 +433,66 @@ struct ModelsSettingsView: View {
                     Text(msg)
                         .font(.caption)
                 }
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        keySaveMessage = nil
-                    }
+                .task {
+                    try? await Task.sleep(for: .seconds(2))
+                    keySaveMessage = nil
                 }
             }
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Reusable Components
+
+    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+            VStack(spacing: 6) {
+                content()
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 12)
+    }
 
     private func providerKeyRow(
         name: String,
         icon: String,
         key: Binding<String>,
         onSave: @escaping () -> Void,
-        models: [String]
+        modelCount: Int
     ) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
                 Label(name, systemImage: icon)
-                    .font(.headline)
-                HStack {
-                    SecureField("API Key", text: key)
-                        .font(.system(.body, design: .monospaced))
-                    Button("Save") { onSave() }
-                        .controlSize(.small)
-                }
-                if !models.isEmpty {
-                    Text("\(models.count) models available")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Enter API key to load available models.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                if modelCount > 0 {
+                    Text("\(modelCount) models")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
                 }
             }
-        }
-    }
-
-    private func recommendedModelRow(_ model: ModelEntry) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(model.name)
-                        .font(.body.weight(.medium))
-                    if model.featured {
-                        Image(systemName: "star.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.yellow)
-                    }
-                }
-                Text(model.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    Text(model.parameterSize)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.blue.opacity(0.1)))
-                    Text(model.category)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.purple.opacity(0.1)))
-                    Text("\(model.ramRequired) GB")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            HStack(spacing: 6) {
+                SecureField("API Key", text: key)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Button("Save") { onSave() }
+                    .controlSize(.mini)
             }
-            Spacer()
-            tierBadge(model.recommendedTier)
         }
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
     }
 
     private func tierBadge(_ tier: ModelTier) -> some View {
-        Text(tier.rawValue.uppercased())
+        Text(tier.displayName)
             .font(.caption2.weight(.bold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(
-                Capsule().fill(tierColor(tier).opacity(0.15))
-            )
+            .background(Capsule().fill(tierColor(tier).opacity(0.15)))
             .foregroundStyle(tierColor(tier))
     }
 
@@ -361,17 +507,14 @@ struct ModelsSettingsView: View {
 
     // MARK: - Actions
 
-    private func loadRecommendedModels() {
+    private func loadRecommendedModels() async {
         loadingRecommended = true
-        Task {
-            do {
-                recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo)
-            } catch {
-                // Fallback: empty list, no crash
-                recommendedModels = []
-            }
-            loadingRecommended = false
+        do {
+            recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo)
+        } catch {
+            recommendedModels = []
         }
+        loadingRecommended = false
     }
 
     private func formatDownloads(_ count: Int) -> String {

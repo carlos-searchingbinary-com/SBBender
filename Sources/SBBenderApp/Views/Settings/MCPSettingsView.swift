@@ -6,193 +6,251 @@ struct MCPSettingsView: View {
 
     @State private var showConnectionSheet = false
     @State private var editingConfig: MCPServerConfig?
-    @State private var showCurated = false
     @State private var curatedServers: [MCPServerEntry] = []
     @State private var loadingCurated = false
+    @State private var expandedServerID: String?
 
     var body: some View {
-        Form {
-            curatedSection
-            customServersSection
+        ScrollView {
+            VStack(spacing: 0) {
+                // Curated servers — loaded immediately
+                curatedSection
+
+                if !appState.mcpServerConfigs.isEmpty {
+                    Divider()
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                }
+
+                // Custom servers
+                customServersSection
+            }
         }
-        .formStyle(.grouped)
+        .task {
+            await loadCuratedServers()
+        }
         .sheet(isPresented: $showConnectionSheet) {
             MCPConnectionSheet(existingConfig: editingConfig)
                 .environment(appState)
         }
     }
 
-    // MARK: - Curated MCP Servers
+    // MARK: - Curated Servers
 
-    @ViewBuilder
     private var curatedSection: some View {
-        Section("Recommended MCP Servers") {
-            DisclosureGroup("Browse Curated Servers", isExpanded: $showCurated) {
-                if loadingCurated {
-                    ProgressView("Loading curated servers...")
-                        .font(.caption)
-                } else if curatedServers.isEmpty {
-                    Text("No curated servers available.")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recommended")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+
+            if loadingCurated {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading recommendations...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(curatedServers) { server in
-                        curatedServerRow(server)
-                    }
                 }
-            }
-            .onChange(of: showCurated) { _, expanded in
-                if expanded && curatedServers.isEmpty {
-                    loadCuratedServers()
+                .padding(.vertical, 12)
+            } else if curatedServers.isEmpty {
+                HStack {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                    Text("Could not load curated servers.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 8)
+            } else {
+                ForEach(curatedServers) { server in
+                    curatedServerCard(server)
                 }
             }
         }
+        .padding(.horizontal)
+        .padding(.top, 12)
     }
 
     // MARK: - Custom Servers
 
-    @ViewBuilder
     private var customServersSection: some View {
-        Section {
-            if appState.mcpServerConfigs.isEmpty {
-                HStack {
-                    Image(systemName: "server.rack")
-                        .foregroundStyle(.secondary)
-                    Text("No custom MCP servers configured.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(appState.mcpServerConfigs) { server in
-                    HStack {
-                        Image(systemName: server.enabled ? "circle.fill" : "circle")
-                            .foregroundStyle(server.enabled ? .green : .secondary)
-                            .font(.caption)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(server.name)
-                                .font(.body.bold())
-                            HStack(spacing: 4) {
-                                Text(server.command)
-                                    .font(.system(.caption, design: .monospaced))
-                                Text(server.arguments.joined(separator: " "))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        Spacer()
-
-                        Button {
-                            editingConfig = server
-                            showConnectionSheet = true
-                        } label: {
-                            Image(systemName: "pencil.circle")
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.vertical, 4)
-                }
-                .onDelete { indices in
-                    for index in indices {
-                        appState.deleteMCPServerConfig(appState.mcpServerConfigs[index])
-                    }
-                }
-            }
-        } header: {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Custom MCP Servers")
+                Text("Your Servers")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
                 Spacer()
                 Button {
                     editingConfig = nil
                     showConnectionSheet = true
                 } label: {
-                    Image(systemName: "plus")
+                    Label("Add Custom", systemImage: "plus")
+                        .font(.caption)
                 }
-                .buttonStyle(.plain)
+                .controlSize(.small)
+            }
+
+            if appState.mcpServerConfigs.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "server.rack")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    Text("No custom servers. Add one above or use a recommended server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 8)
+            } else {
+                ForEach(appState.mcpServerConfigs) { server in
+                    customServerRow(server)
+                }
             }
         }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
     }
 
-    // MARK: - Subviews
+    // MARK: - Curated Server Card
 
-    private func curatedServerRow(_ server: MCPServerEntry) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(server.name)
-                        .font(.body.weight(.medium))
-                    tierBadge(server.minModelTier)
-                }
-                Text(server.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    Text(server.category)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.blue.opacity(0.1)))
-                    ForEach(server.tags.prefix(3), id: \.self) { tag in
-                        Text(tag)
+    private func curatedServerCard(_ server: MCPServerEntry) -> some View {
+        let alreadyAdded = appState.mcpServerConfigs.contains { $0.name == server.name }
+        let isExpanded = expandedServerID == server.id
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Main row
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(server.name)
+                            .font(.body.weight(.medium))
+                        Text(server.category)
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.blue.opacity(0.12)))
+                            .foregroundStyle(.blue)
                     }
+                    Text(server.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(isExpanded ? nil : 2)
+                }
+
+                Spacer()
+
+                if alreadyAdded {
+                    Label("Added", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Button("Add") {
+                        addCuratedServer(server)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+            // Setup instructions toggle
+            if let instructions = server.setupInstructions, !instructions.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expandedServerID = isExpanded ? nil : server.id
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2)
+                        Text("Setup Instructions")
+                            .font(.caption2.weight(.medium))
+                    }
+                    .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 6)
+
+                if isExpanded {
+                    Text(instructions)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 6)
+                        .padding(.leading, 2)
+
+                    // Show required binaries
+                    if !server.requiredBins.isEmpty {
+                        HStack(spacing: 4) {
+                            Text("Requires:")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            ForEach(server.requiredBins, id: \.self) { bin in
+                                Text(bin)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.1)))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.06)))
+    }
+
+    // MARK: - Custom Server Row
+
+    private func customServerRow(_ server: MCPServerConfig) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: server.enabled ? "circle.fill" : "circle")
+                .foregroundStyle(server.enabled ? .green : .secondary)
+                .font(.caption2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(server.name)
+                    .font(.body.weight(.medium))
+                HStack(spacing: 4) {
+                    Text(server.command)
+                        .font(.system(.caption2, design: .monospaced))
+                    Text(server.arguments.joined(separator: " "))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            let alreadyAdded = appState.mcpServerConfigs.contains { $0.name == server.name }
-            if alreadyAdded {
-                Text("Added")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            } else {
-                Button("Add") {
-                    addCuratedServer(server)
-                }
-                .controlSize(.small)
+            Button {
+                editingConfig = server
+                showConnectionSheet = true
+            } label: {
+                Image(systemName: "pencil.circle")
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
         }
-        .padding(.vertical, 4)
-    }
-
-    private func tierBadge(_ tier: ModelTier) -> some View {
-        Text(tier.rawValue.uppercased())
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                Capsule().fill(tierColor(tier).opacity(0.15))
-            )
-            .foregroundStyle(tierColor(tier))
-    }
-
-    private func tierColor(_ tier: ModelTier) -> Color {
-        switch tier {
-        case .small: .green
-        case .medium: .blue
-        case .large: .purple
-        case .xlarge: .orange
-        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
     }
 
     // MARK: - Actions
 
-    private func loadCuratedServers() {
+    private func loadCuratedServers() async {
         loadingCurated = true
-        Task {
-            do {
-                curatedServers = try await appState.curatedRegistry.compatibleMCPServers(
-                    for: appState.hardwareInfo.modelTier
-                )
-            } catch {
-                curatedServers = []
-            }
-            loadingCurated = false
+        do {
+            curatedServers = try await appState.curatedRegistry.compatibleMCPServers(
+                for: appState.hardwareInfo.modelTier
+            )
+        } catch {
+            curatedServers = []
         }
+        loadingCurated = false
     }
 
     private func addCuratedServer(_ entry: MCPServerEntry) {

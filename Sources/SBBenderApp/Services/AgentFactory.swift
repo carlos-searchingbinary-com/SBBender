@@ -64,6 +64,12 @@ struct AgentFactory {
         switch type {
         case .mlx:
             return MLXProvider(modelID: modelID)
+        case .foundation:
+            if #available(macOS 26, *) {
+                return FoundationProvider()
+            }
+            // Fallback to MLX if macOS 26 not available
+            return MLXProvider(modelID: "mlx-community/Qwen3-4B-4bit")
         case .ollama:
             return OllamaProvider(modelID: modelID.isEmpty ? "qwen3:4b" : modelID)
         case .anthropic:
@@ -73,7 +79,7 @@ struct AgentFactory {
             )
         case .openai:
             return OpenAIProvider(
-                modelID: modelID.isEmpty ? "gpt-4o" : modelID,
+                modelID: modelID.isEmpty ? "gpt-4.1" : modelID,
                 apiKey: KeychainService.openaiKey
             )
         case .groq:

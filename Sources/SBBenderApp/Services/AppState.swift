@@ -2,6 +2,10 @@ import Foundation
 import SwiftUI
 import SBBender
 
+#if canImport(Containerization)
+import Containerization
+#endif
+
 @MainActor
 @Observable
 final class AppState {
@@ -11,6 +15,7 @@ final class AppState {
     var teams: [TeamConfig] = []
     var toolConfigs: [ToolConfig] = []
     var mcpServerConfigs: [MCPServerConfig] = []
+    private(set) var agentTemplates: [AgentTemplate] = []
 
     // MARK: - Navigation
 
@@ -40,6 +45,7 @@ final class AppState {
 
     // MARK: - OpenClaw (macOS 26+)
 
+    private(set) var containerRuntimeStatus: ContainerRuntimeStatus = .notSupported
     private var _clawHubManager: (any Sendable)?
 
     @available(macOS 26, *)
@@ -63,6 +69,9 @@ final class AppState {
             WebFetchSkill(),
             BrowserSkill(),
             ShortcutsSkill(),
+            // Data
+            DataAnalysisSkill(),
+            ChartingSkill(),
             // Communication
             EmailSkill(),
         ]
@@ -92,6 +101,7 @@ final class AppState {
     static let skillCategories: [(name: String, icon: String, skillIDs: [String])] = [
         ("Language", "textformat", ["language-detection", "sentiment", "entity-extraction", "tokenization", "embedding-distance"]),
         ("System", "terminal", ["shell", "applescript", "web-fetch", "browser", "shortcuts"]),
+        ("Data", "tablecells", ["data-analysis", "charting"]),
         ("Communication", "envelope", ["email"]),
         ("Media", "waveform", ["transcription", "screencapture", "vision", "translation"]),
         ("Calendar", "calendar", ["calendar", "reminders"]),
@@ -134,6 +144,45 @@ final class AppState {
 
         // Load available models from all providers
         await modelRegistry.loadAll()
+
+        // Load agent templates from curated registry
+        do {
+            let entries = try await curatedRegistry.agentTemplates()
+            agentTemplates = entries.map { AgentTemplate(from: $0) }
+        } catch {
+            os_log_error("Failed to load agent templates: \(error)")
+        }
+
+        // Auto-setup container runtime for OpenClaw skills
+        if #available(macOS 26, *) {
+            await setupContainerRuntime()
+        }
+    }
+
+    @available(macOS 26, *)
+    private func setupContainerRuntime() async {
+        guard let kernelURL = findVmlinuxKernel() else {
+            containerRuntimeStatus = .kernelMissing
+            return
+        }
+
+        do {
+            #if canImport(Containerization)
+            let kernel = Kernel(path: kernelURL, platform: .linuxArm)
+            let manager = try await ContainerManager(
+                kernel: kernel,
+                initfsReference: "ghcr.io/apple/containerization/vminit:0.13.0"
+            )
+            let clawHub = try await getOrCreateClawHubManager()
+            await clawHub.configureContainerManager(manager)
+            containerRuntimeStatus = .ready
+            #else
+            containerRuntimeStatus = .notSupported
+            #endif
+        } catch {
+            containerRuntimeStatus = .initFailed(error.localizedDescription)
+            os_log_error("Container runtime setup failed: \(error)")
+        }
     }
 
     // MARK: - Agent CRUD
@@ -340,15 +389,22 @@ final class AppState {
     // MARK: - Tools & Skills
 
     func nativeToolsForConfig(_ config: AgentConfig, skills: [Skill] = []) -> [any NativeTool] {
-        // Derive allowed tools from attached SKILL.md skills
-        // If any skill has allowedTools, restrict to the union of those
-        // If no skills or none restrict, enable all native tools
-        let restrictions = skills.compactMap(\.allowedTools)
-        if restrictions.isEmpty {
-            return nativeSkills
+        var pool = nativeSkills
+
+        // 1. If enabledSkillIDs is set, restrict to those native tools
+        if !config.enabledSkillIDs.isEmpty {
+            let allowed = Set(config.enabledSkillIDs)
+            pool = pool.filter { allowed.contains($0.id) }
         }
-        let allowedIDs = Set(restrictions.flatMap { $0 })
-        return nativeSkills.filter { allowedIDs.contains($0.id) }
+
+        // 2. If attached SKILL.md skills declare allowedTools, further restrict
+        let restrictions = skills.compactMap(\.allowedTools)
+        if !restrictions.isEmpty {
+            let allowedIDs = Set(restrictions.flatMap { $0 })
+            pool = pool.filter { allowedIDs.contains($0.id) }
+        }
+
+        return pool
     }
 
     func skillsForConfig(_ config: AgentConfig) async -> [Skill] {
@@ -369,6 +425,59 @@ final class AppState {
 
     func teamConfig(for id: String) -> TeamConfig? {
         teams.first { $0.id == id }
+    }
+
+    // MARK: - Bundle Apply
+
+    /// Apply a curated bundle: creates MCP server configs and an agent in one step.
+    func applyBundle(_ bundle: BundleEntry) async {
+        // 1. Resolve MCP servers from the curated registry
+        var mcpIDs: [String] = []
+        if !bundle.mcpServers.isEmpty {
+            do {
+                let allServers = try await curatedRegistry.mcpServers()
+                for serverID in bundle.mcpServers {
+                    guard let entry = allServers.first(where: { $0.id == serverID }) else { continue }
+                    // Check if we already have this server configured
+                    if let existing = mcpServerConfigs.first(where: { $0.name == entry.name }) {
+                        mcpIDs.append(existing.id)
+                    } else {
+                        let config = MCPServerConfig(
+                            name: entry.name,
+                            command: entry.command,
+                            arguments: entry.arguments,
+                            environment: entry.environment ?? [:]
+                        )
+                        saveMCPServerConfig(config)
+                        mcpIDs.append(config.id)
+                    }
+                }
+            } catch {
+                os_log_error("Failed to load MCP servers for bundle: \(error)")
+            }
+        }
+
+        // 2. Determine provider from model ID
+        let providerType: String
+        if bundle.model.hasPrefix("mlx-community/") {
+            providerType = "mlx"
+        } else if bundle.model.contains(":") {
+            providerType = "ollama"
+        } else {
+            providerType = "mlx"
+        }
+
+        // 3. Create the agent
+        let agentConfig = AgentConfig(
+            name: bundle.name,
+            instructions: "You are a helpful assistant configured with the \(bundle.name) bundle.",
+            providerType: providerType,
+            modelID: bundle.model,
+            enabledSkillIDs: bundle.nativeTools,
+            mcpServerIDs: mcpIDs,
+            enableThinking: true
+        )
+        saveAgent(agentConfig)
     }
 
     // MARK: - OpenClaw Manager

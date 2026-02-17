@@ -9,7 +9,7 @@ public struct OpenAIProvider: ModelProvider, Sendable {
     private let baseURL: URL
 
     public init(
-        modelID: String = "gpt-4o",
+        modelID: String = "gpt-4.1",
         apiKey: String,
         baseURL: URL = URL(string: "https://api.openai.com/v1")!
     ) {
