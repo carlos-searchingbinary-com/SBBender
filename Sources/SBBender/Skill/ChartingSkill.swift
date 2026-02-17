@@ -31,12 +31,16 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
         JSONSchema(
             properties: [
                 "action": .string("The action: 'chart' or 'types'"),
-                "type": .string("Chart type: 'bar', 'line', 'pie', 'scatter', 'area', or 'auto' (default). When 'auto', the best type is detected from the data."),
+                "type": .string("Chart type: 'bar', 'line', 'pie', 'scatter', 'area', 'stackedBar', 'donut', 'histogram', 'heatmap', 'candlestick', or 'auto' (default). When 'auto', the best type is detected from the data."),
                 "title": .string("Chart title displayed above the visualization."),
                 "xLabel": .string("X-axis label. Optional."),
                 "yLabel": .string("Y-axis label. Optional."),
-                "data": .string("JSON array of data points: [{\"label\": \"A\", \"value\": 10}] for categorical, or [{\"x\": 1.0, \"y\": 2.0}] for scatter."),
+                "data": .string("JSON array of data points: [{\"label\": \"A\", \"value\": 10}] for categorical, or [{\"x\": 1.0, \"y\": 2.0}] for scatter. For histograms, [{\"value\": 42}] raw numeric values."),
                 "series": .string("JSON array of named series for multi-series charts: [{\"name\": \"Series1\", \"data\": [{\"label\": \"A\", \"value\": 10}]}]"),
+                "binCount": .string("Number of bins for histogram charts. If omitted, auto-calculated via Sturges' rule."),
+                "heatmapData": .string("JSON array of heatmap cells: [{\"row\": \"A\", \"column\": \"X\", \"value\": 0.9}]"),
+                "candlestickData": .string("JSON array of OHLC points: [{\"label\": \"Mon\", \"open\": 150, \"high\": 155, \"low\": 148, \"close\": 153}]"),
+                "annotations": .string("JSON array of reference lines/markers: [{\"label\": \"Target\", \"value\": 120, \"style\": \"line\"}]"),
             ],
             required: ["action"]
         )
@@ -57,6 +61,10 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
             if let t = args.yLabel { params["yLabel"] = t }
             if let d = args.data { params["data"] = d.jsonString }
             if let s = args.series { params["series"] = s.jsonString }
+            if let b = args.binCount { params["binCount"] = String(b) }
+            if let h = args.heatmapData { params["heatmapData"] = h }
+            if let c = args.candlestickData { params["candlestickData"] = c }
+            if let a = args.annotations { params["annotations"] = a }
             let result = try await skill.execute(input: NativeToolInput(
                 text: args.action,
                 parameters: params
@@ -112,13 +120,22 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
 
     private func buildChartSpec(from params: [String: String]) throws -> ChartSpec {
         // Parse data
-        let dataPoints = try parseDataPoints(params["data"])
+        var dataPoints = try parseDataPoints(params["data"])
         let dataSeries = try parseDataSeries(params["series"])
 
-        guard dataPoints != nil || dataSeries != nil else {
+        // Parse new specialized data fields
+        let heatmapData = try parseHeatmapData(params["heatmapData"])
+        let candlestickData = try parseCandlestickData(params["candlestickData"])
+        let annotations = try parseAnnotations(params["annotations"])
+        let binCount = params["binCount"].flatMap { Int($0) }
+
+        // Heatmap and candlestick use their own data fields
+        let hasSpecializedData = heatmapData != nil || candlestickData != nil
+
+        guard dataPoints != nil || dataSeries != nil || hasSpecializedData else {
             throw SBBenderError.skillExecutionFailed(
                 skill: name,
-                reason: "Either 'data' or 'series' is required for the 'chart' action."
+                reason: "Either 'data', 'series', 'heatmapData', or 'candlestickData' is required for the 'chart' action."
             )
         }
 
@@ -131,7 +148,25 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
         )
 
         // Validate data for the chosen chart type
-        try validateData(type: chartType, data: dataPoints, series: dataSeries)
+        try validateData(
+            type: chartType,
+            data: dataPoints,
+            series: dataSeries,
+            heatmapData: heatmapData,
+            candlestickData: candlestickData
+        )
+
+        // Histogram: auto-bin raw values into label+value DataPoints
+        var resolvedBinCount = binCount
+        if chartType == .histogram, let rawPoints = dataPoints {
+            let values = rawPoints.compactMap(\.value)
+            let needsBinning = rawPoints.allSatisfy { $0.label == nil && $0.value != nil }
+            if needsBinning && values.count >= 3 {
+                let numBins = binCount ?? Int(ceil(log2(Double(values.count)) + 1))
+                resolvedBinCount = numBins
+                dataPoints = buildHistogramBins(values: values, binCount: numBins)
+            }
+        }
 
         return ChartSpec(
             type: chartType,
@@ -141,7 +176,11 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
             data: dataPoints,
             series: dataSeries,
             autoDetected: autoDetected,
-            reason: reason
+            reason: reason,
+            heatmapData: heatmapData,
+            candlestickData: candlestickData,
+            annotations: annotations,
+            binCount: resolvedBinCount
         )
     }
 
@@ -153,8 +192,14 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
         series: [ChartSpec.DataSeries]?
     ) -> (ChartSpec.ChartType, Bool, String?) {
         // Explicit type requested
-        if requested != "auto", let explicit = ChartSpec.ChartType(rawValue: requested) {
-            return (explicit, false, nil)
+        if requested != "auto" {
+            // Try exact match first, then case-insensitive match
+            if let explicit = ChartSpec.ChartType(rawValue: requested) {
+                return (explicit, false, nil)
+            }
+            if let explicit = ChartSpec.ChartType.allCases.first(where: { $0.rawValue.lowercased() == requested }) {
+                return (explicit, false, nil)
+            }
         }
 
         // Auto-detect from data shape
@@ -241,7 +286,9 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
     private func validateData(
         type: ChartSpec.ChartType,
         data: [ChartSpec.DataPoint]?,
-        series: [ChartSpec.DataSeries]?
+        series: [ChartSpec.DataSeries]?,
+        heatmapData: [ChartSpec.HeatmapCell]? = nil,
+        candlestickData: [ChartSpec.CandlestickPoint]? = nil
     ) throws {
         switch type {
         case .scatter:
@@ -291,13 +338,58 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
                 )
             }
 
+        case .stackedBar:
+            guard let series, !series.isEmpty else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Stacked bar charts require 'series' data with multiple named series."
+                )
+            }
+            let allPoints = series.flatMap(\.data)
+            let hasLabels = allPoints.allSatisfy { $0.label != nil }
+            let hasValues = allPoints.allSatisfy { $0.value != nil }
+            guard hasLabels && hasValues else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Stacked Bar Chart requires data points with 'label' and 'value' fields."
+                )
+            }
+
+        case .histogram:
+            let points = data ?? []
+            let values = points.compactMap(\.value)
+            guard values.count >= 3 else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Histogram requires at least 3 numeric values."
+                )
+            }
+
         case .heatmap:
-            break // Validated via heatmapData field presence
+            guard let heatmapData, !heatmapData.isEmpty else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Heatmap charts require 'heatmapData' with row, column, and value fields."
+                )
+            }
 
         case .candlestick:
-            break // Validated via candlestickData field presence
+            guard let candlestickData, !candlestickData.isEmpty else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Candlestick charts require 'candlestickData' with label, open, high, low, close fields."
+                )
+            }
+            for point in candlestickData {
+                guard point.high >= point.low else {
+                    throw SBBenderError.skillExecutionFailed(
+                        skill: name,
+                        reason: "Candlestick data point '\(point.label)' has high (\(point.high)) < low (\(point.low))."
+                    )
+                }
+            }
 
-        case .bar, .line, .area, .stackedBar, .histogram:
+        case .bar, .line, .area:
             let points = data ?? series?.flatMap(\.data) ?? []
             guard !points.isEmpty else {
                 throw SBBenderError.skillExecutionFailed(
@@ -341,6 +433,82 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
                 reason: "Invalid 'series' JSON: \(error.localizedDescription). Expected array of {name, data: [{label, value}]} objects."
             )
         }
+    }
+
+    private func parseHeatmapData(_ json: String?) throws -> [ChartSpec.HeatmapCell]? {
+        guard let json, !json.isEmpty else { return nil }
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            return try JSONDecoder().decode([ChartSpec.HeatmapCell].self, from: Data(trimmed.utf8))
+        } catch {
+            throw SBBenderError.skillExecutionFailed(
+                skill: name,
+                reason: "Invalid 'heatmapData' JSON: \(error.localizedDescription). Expected array of {row, column, value} objects."
+            )
+        }
+    }
+
+    private func parseCandlestickData(_ json: String?) throws -> [ChartSpec.CandlestickPoint]? {
+        guard let json, !json.isEmpty else { return nil }
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            return try JSONDecoder().decode([ChartSpec.CandlestickPoint].self, from: Data(trimmed.utf8))
+        } catch {
+            throw SBBenderError.skillExecutionFailed(
+                skill: name,
+                reason: "Invalid 'candlestickData' JSON: \(error.localizedDescription). Expected array of {label, open, high, low, close} objects."
+            )
+        }
+    }
+
+    private func parseAnnotations(_ json: String?) throws -> [ChartSpec.Annotation]? {
+        guard let json, !json.isEmpty else { return nil }
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            return try JSONDecoder().decode([ChartSpec.Annotation].self, from: Data(trimmed.utf8))
+        } catch {
+            throw SBBenderError.skillExecutionFailed(
+                skill: name,
+                reason: "Invalid 'annotations' JSON: \(error.localizedDescription). Expected array of {label, value, style?} objects."
+            )
+        }
+    }
+
+    // MARK: - Histogram Binning
+
+    /// Auto-bin raw numeric values into histogram bins using Sturges' rule.
+    private func buildHistogramBins(values: [Double], binCount: Int) -> [ChartSpec.DataPoint] {
+        guard let minVal = values.min(), let maxVal = values.max(), binCount > 0 else {
+            return []
+        }
+
+        // Handle edge case where all values are the same
+        let range = maxVal - minVal
+        let binWidth = range > 0 ? range / Double(binCount) : 1.0
+        let adjustedMin = range > 0 ? minVal : minVal - Double(binCount) / 2.0
+
+        var bins = Array(repeating: 0.0, count: binCount)
+        for value in values {
+            var index = Int((value - adjustedMin) / binWidth)
+            // Clamp the last value into the final bin
+            if index >= binCount { index = binCount - 1 }
+            if index < 0 { index = 0 }
+            bins[index] += 1
+        }
+
+        return (0..<binCount).map { i in
+            let low = adjustedMin + Double(i) * binWidth
+            let high = low + binWidth
+            let label = "\(formatBinEdge(low))-\(formatBinEdge(high))"
+            return ChartSpec.DataPoint(label: label, value: bins[i])
+        }
+    }
+
+    private func formatBinEdge(_ value: Double) -> String {
+        if value == value.rounded() && abs(value) < 1e10 {
+            return String(Int(value))
+        }
+        return String(format: "%.1f", value)
     }
 
     // MARK: - List Types
@@ -432,5 +600,9 @@ extension ChartingSkill {
         let yLabel: String?
         let data: ChartDataInput?
         let series: ChartSeriesInput?
+        let binCount: Int?
+        let heatmapData: String?
+        let candlestickData: String?
+        let annotations: String?
     }
 }

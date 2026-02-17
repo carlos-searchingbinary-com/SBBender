@@ -616,6 +616,207 @@ struct ChartingSkillTests {
         #expect(decoded.candlestickData?[0].close == 153)
     }
 
+    // MARK: - Stacked Bar
+
+    @Test("Explicit stacked bar chart")
+    func testStackedBarChart() async throws {
+        let spec = try await createChartWithSeries(
+            type: "stackedBar",
+            title: "Revenue Breakdown",
+            series: [
+                ["name": "Product A", "data": [["label": "Q1", "value": 100], ["label": "Q2", "value": 150]]],
+                ["name": "Product B", "data": [["label": "Q1", "value": 80], ["label": "Q2", "value": 120]]],
+            ]
+        )
+        #expect(spec.type == .stackedBar)
+        #expect(spec.series?.count == 2)
+    }
+
+    @Test("Stacked bar rejects single data (requires series)")
+    func testStackedBarRejectsSingleData() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "stackedBar",
+                    "data": "[{\"label\":\"A\",\"value\":10}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Donut
+
+    @Test("Explicit donut chart")
+    func testDonutChart() async throws {
+        let spec = try await createChart(
+            type: "donut",
+            title: "Browser Share",
+            data: [
+                ["label": "Chrome", "value": "65"],
+                ["label": "Safari", "value": "20"],
+                ["label": "Firefox", "value": "15"],
+            ]
+        )
+        #expect(spec.type == .donut)
+        #expect(spec.data?.count == 3)
+    }
+
+    // MARK: - Histogram
+
+    @Test("Histogram with raw values auto-bins")
+    func testHistogramAutoBin() async throws {
+        let skill = ChartingSkill()
+        let values = (0..<20).map { _ in Double.random(in: 0...100) }
+        let dataJSON = values.map { "{\"value\":\($0)}" }.joined(separator: ",")
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "histogram",
+                "title": "Distribution",
+                "data": "[\(dataJSON)]",
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .histogram)
+        #expect(spec.data != nil)
+        #expect(spec.data!.count >= 3)
+        #expect(spec.data!.allSatisfy { $0.label != nil && $0.value != nil })
+    }
+
+    @Test("Histogram with explicit binCount")
+    func testHistogramExplicitBins() async throws {
+        let skill = ChartingSkill()
+        let values = (0..<30).map { "\($0 * 3)" }
+        let dataJSON = values.map { "{\"value\":\($0)}" }.joined(separator: ",")
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "histogram",
+                "title": "Custom Bins",
+                "data": "[\(dataJSON)]",
+                "binCount": "5",
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .histogram)
+        #expect(spec.data?.count == 5)
+        #expect(spec.binCount == 5)
+    }
+
+    @Test("Histogram rejects fewer than 3 values")
+    func testHistogramTooFewValues() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "histogram",
+                    "data": "[{\"value\":10},{\"value\":20}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Heatmap
+
+    @Test("Heatmap chart from heatmapData")
+    func testHeatmapChart() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "heatmap",
+                "title": "Correlation",
+                "heatmapData": """
+                [{"row":"A","column":"X","value":0.9},{"row":"A","column":"Y","value":0.3},{"row":"B","column":"X","value":0.5},{"row":"B","column":"Y","value":0.8}]
+                """,
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .heatmap)
+        #expect(spec.heatmapData?.count == 4)
+    }
+
+    @Test("Heatmap rejects missing fields")
+    func testHeatmapValidation() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "heatmap",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Candlestick
+
+    @Test("Candlestick chart from candlestickData")
+    func testCandlestickChart() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "candlestick",
+                "title": "AAPL",
+                "candlestickData": """
+                [{"label":"Mon","open":150,"high":155,"low":148,"close":153},{"label":"Tue","open":153,"high":158,"low":151,"close":156}]
+                """,
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.type == .candlestick)
+        #expect(spec.candlestickData?.count == 2)
+    }
+
+    @Test("Candlestick rejects high < low")
+    func testCandlestickValidation() async {
+        let skill = ChartingSkill()
+        await #expect(throws: SBBenderError.self) {
+            try await skill.execute(input: NativeToolInput(
+                text: "chart",
+                parameters: [
+                    "type": "candlestick",
+                    "candlestickData": "[{\"label\":\"Mon\",\"open\":150,\"high\":145,\"low\":148,\"close\":153}]",
+                ]
+            ))
+        }
+    }
+
+    // MARK: - Annotations
+
+    @Test("Chart with annotations")
+    func testChartWithAnnotations() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "chart",
+            parameters: [
+                "type": "bar",
+                "data": "[{\"label\":\"A\",\"value\":100},{\"label\":\"B\",\"value\":200}]",
+                "annotations": "[{\"label\":\"Target\",\"value\":150},{\"label\":\"Avg\",\"value\":150,\"style\":\"line\"}]",
+            ]
+        ))
+        let spec = try JSONDecoder().decode(ChartSpec.self, from: Data(result.output.utf8))
+        #expect(spec.annotations?.count == 2)
+        #expect(spec.annotations?[0].label == "Target")
+    }
+
+    // MARK: - Types Action includes new types
+
+    @Test("Types action lists all 10 chart types")
+    func testListAllTypes() async throws {
+        let skill = ChartingSkill()
+        let result = try await skill.execute(input: NativeToolInput(text: "types", parameters: [:]))
+        #expect(result.output.contains("stackedBar"))
+        #expect(result.output.contains("donut"))
+        #expect(result.output.contains("histogram"))
+        #expect(result.output.contains("heatmap"))
+        #expect(result.output.contains("candlestick"))
+    }
+
     @Test("Annotations round-trip on bar chart")
     func testAnnotationsCodable() throws {
         let spec = ChartSpec(
