@@ -407,6 +407,43 @@ struct AgentTemplateE2ETests {
         }
     }
 
+    // MARK: - Data Analyst + Charting Template
+    // Verify Qwen3-4B can invoke ChartingSkill with correct parameters
+
+    @Test("Data Analyst template: create bar chart from explicit data")
+    func testDataAnalystCharting() async throws {
+        let agent = Agent(
+            configuration: AgentConfiguration(
+                name: "Data Analyst",
+                instructions: """
+                You are a data analyst. When asked to create a chart, use the createChart tool. \
+                Always use the tool — never describe a chart in text.
+                """,
+                generationConfig: GenerationConfig(maxTokens: 512, temperature: 0.2, enableThinking: false),
+                maxIterations: 4
+            ),
+            model: Self.mlx,
+            nativeTools: [
+                ChartingSkill(),
+            ]
+        )
+
+        let result = try await agent.run("""
+        Create a bar chart with this exact data using createChart with these parameters:
+        {"action": "chart", "type": "bar", "title": "Q1 Sales", "data": "[{\\"label\\":\\"Jan\\",\\"value\\":100},{\\"label\\":\\"Feb\\",\\"value\\":150},{\\"label\\":\\"Mar\\",\\"value\\":200}]"}
+        """)
+
+        #expect(result.status == .completed)
+        let chartExecs = result.toolExecutions.filter { $0.toolName == "createChart" }
+        #expect(!chartExecs.isEmpty, "Agent should use createChart tool, used: \(result.toolExecutions.map(\.toolName))")
+        for exec in chartExecs {
+            #expect(exec.succeeded, "createChart failed: \(exec.error ?? "unknown")")
+            if let output = exec.result {
+                #expect(output.contains("__chart__"), "Output should contain __chart__ marker, got: \(output.prefix(200))")
+            }
+        }
+    }
+
     // MARK: - Meeting Copilot Template
     // Skills: transcription, calendar, reminders, sentiment
     // Note: transcription requires audio file so we test the other skills
