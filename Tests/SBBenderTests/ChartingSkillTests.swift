@@ -518,6 +518,126 @@ struct ChartingSkillTests {
         #expect(decoded.reason == "Test reason")
     }
 
+    // MARK: - New Chart Types: Codable Round-Trip
+
+    @Test("Stacked bar ChartSpec round-trip")
+    func testStackedBarCodable() throws {
+        let spec = ChartSpec(
+            type: .stackedBar,
+            title: "Revenue by Region",
+            series: [
+                ChartSpec.DataSeries(name: "North", data: [
+                    ChartSpec.DataPoint(label: "Q1", value: 100),
+                    ChartSpec.DataPoint(label: "Q2", value: 150),
+                ]),
+                ChartSpec.DataSeries(name: "South", data: [
+                    ChartSpec.DataPoint(label: "Q1", value: 80),
+                    ChartSpec.DataPoint(label: "Q2", value: 120),
+                ]),
+            ]
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.type == .stackedBar)
+        #expect(decoded.series?.count == 2)
+    }
+
+    @Test("Donut ChartSpec round-trip")
+    func testDonutCodable() throws {
+        let spec = ChartSpec(
+            type: .donut,
+            title: "Market Share",
+            data: [
+                ChartSpec.DataPoint(label: "A", value: 60),
+                ChartSpec.DataPoint(label: "B", value: 40),
+            ]
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.type == .donut)
+    }
+
+    @Test("Histogram ChartSpec round-trip with binCount")
+    func testHistogramCodable() throws {
+        let spec = ChartSpec(
+            type: .histogram,
+            title: "Age Distribution",
+            data: [
+                ChartSpec.DataPoint(label: "20-30", value: 15),
+                ChartSpec.DataPoint(label: "30-40", value: 25),
+                ChartSpec.DataPoint(label: "40-50", value: 20),
+            ],
+            binCount: 10
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.type == .histogram)
+        #expect(decoded.binCount == 10)
+    }
+
+    @Test("Heatmap ChartSpec round-trip")
+    func testHeatmapCodable() throws {
+        let spec = ChartSpec(
+            type: .heatmap,
+            title: "Correlation Matrix",
+            heatmapData: [
+                ChartSpec.HeatmapCell(row: "A", column: "X", value: 0.9),
+                ChartSpec.HeatmapCell(row: "A", column: "Y", value: 0.3),
+                ChartSpec.HeatmapCell(row: "B", column: "X", value: 0.5),
+                ChartSpec.HeatmapCell(row: "B", column: "Y", value: 0.8),
+            ]
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.type == .heatmap)
+        #expect(decoded.heatmapData?.count == 4)
+        #expect(decoded.heatmapData?[0].row == "A")
+        #expect(decoded.heatmapData?[0].column == "X")
+        #expect(decoded.heatmapData?[0].value == 0.9)
+    }
+
+    @Test("Candlestick ChartSpec round-trip")
+    func testCandlestickCodable() throws {
+        let spec = ChartSpec(
+            type: .candlestick,
+            title: "AAPL Weekly",
+            candlestickData: [
+                ChartSpec.CandlestickPoint(label: "Mon", open: 150, high: 155, low: 148, close: 153),
+                ChartSpec.CandlestickPoint(label: "Tue", open: 153, high: 158, low: 151, close: 156),
+            ]
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.type == .candlestick)
+        #expect(decoded.candlestickData?.count == 2)
+        #expect(decoded.candlestickData?[0].open == 150)
+        #expect(decoded.candlestickData?[0].high == 155)
+        #expect(decoded.candlestickData?[0].low == 148)
+        #expect(decoded.candlestickData?[0].close == 153)
+    }
+
+    @Test("Annotations round-trip on bar chart")
+    func testAnnotationsCodable() throws {
+        let spec = ChartSpec(
+            type: .bar,
+            title: "Sales vs Target",
+            data: [
+                ChartSpec.DataPoint(label: "Q1", value: 100),
+                ChartSpec.DataPoint(label: "Q2", value: 150),
+            ],
+            annotations: [
+                ChartSpec.Annotation(label: "Target", value: 120),
+                ChartSpec.Annotation(label: "Average", value: 125, style: "line"),
+            ]
+        )
+        let data = try JSONEncoder().encode(spec)
+        let decoded = try JSONDecoder().decode(ChartSpec.self, from: data)
+        #expect(decoded.annotations?.count == 2)
+        #expect(decoded.annotations?[0].label == "Target")
+        #expect(decoded.annotations?[0].value == 120)
+        #expect(decoded.annotations?[1].style == "line")
+    }
+
     // MARK: - Helpers
 
     private func createChart(

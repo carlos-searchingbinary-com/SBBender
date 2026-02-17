@@ -272,7 +272,32 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
                 )
             }
 
-        case .bar, .line, .area:
+        case .donut:
+            let points = data ?? []
+            guard !points.isEmpty else {
+                throw SBBenderError.skillExecutionFailed(skill: name, reason: "Donut charts require 'data' (not 'series').")
+            }
+            let values = points.compactMap(\.value)
+            guard values.count == points.count else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Donut charts require every data point to have a numeric 'value'."
+                )
+            }
+            guard values.allSatisfy({ $0 >= 0 }) else {
+                throw SBBenderError.skillExecutionFailed(
+                    skill: name,
+                    reason: "Donut chart values must be non-negative."
+                )
+            }
+
+        case .heatmap:
+            break // Validated via heatmapData field presence
+
+        case .candlestick:
+            break // Validated via candlestickData field presence
+
+        case .bar, .line, .area, .stackedBar, .histogram:
             let points = data ?? series?.flatMap(\.data) ?? []
             guard !points.isEmpty else {
                 throw SBBenderError.skillExecutionFailed(
