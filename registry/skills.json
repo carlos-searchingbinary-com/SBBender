@@ -1,0 +1,72 @@
+[
+  {
+    "id": "email-triage",
+    "name": "Email Triage",
+    "source": "searchingbinary/email-triage",
+    "description": "Categorize and prioritize incoming emails by urgency and topic",
+    "category": "productivity",
+    "minModelTier": "medium",
+    "requiredTools": ["email"],
+    "tags": ["email", "productivity", "automation"]
+  },
+  {
+    "id": "web-research",
+    "name": "Web Research",
+    "source": "searchingbinary/web-research",
+    "description": "Multi-step web research with source verification and synthesis",
+    "category": "research",
+    "minModelTier": "medium",
+    "requiredTools": ["web-fetch"],
+    "tags": ["research", "web", "summarization"]
+  },
+  {
+    "id": "code-review",
+    "name": "Code Review",
+    "source": "searchingbinary/code-review",
+    "description": "Automated code review with style checks and security scanning",
+    "category": "development",
+    "minModelTier": "medium",
+    "requiredTools": ["shell"],
+    "tags": ["coding", "review", "security"]
+  },
+  {
+    "id": "meeting-summarizer",
+    "name": "Meeting Summarizer",
+    "source": "searchingbinary/meeting-summarizer",
+    "description": "Transcribe and summarize meetings with action items",
+    "category": "productivity",
+    "minModelTier": "medium",
+    "requiredTools": ["transcription"],
+    "tags": ["meetings", "transcription", "summarization"]
+  },
+  {
+    "id": "document-qa",
+    "name": "Document Q&A",
+    "source": "searchingbinary/document-qa",
+    "description": "Answer questions about documents using RAG knowledge base",
+    "category": "knowledge",
+    "minModelTier": "medium",
+    "requiredTools": [],
+    "tags": ["rag", "documents", "qa"]
+  },
+  {
+    "id": "daily-digest",
+    "name": "Daily Digest",
+    "source": "searchingbinary/daily-digest",
+    "description": "Morning briefing combining calendar, email, and reminders",
+    "category": "productivity",
+    "minModelTier": "medium",
+    "requiredTools": ["calendar", "reminders", "email"],
+    "tags": ["automation", "calendar", "email"]
+  },
+  {
+    "id": "screenshot-analyzer",
+    "name": "Screenshot Analyzer",
+    "source": "searchingbinary/screenshot-analyzer",
+    "description": "Capture and analyze screen content with vision models",
+    "category": "media",
+    "minModelTier": "medium",
+    "requiredTools": ["screencapture", "vision"],
+    "tags": ["vision", "screenshot", "analysis"]
+  }
+]

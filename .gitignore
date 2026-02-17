@@ -1,0 +1,30 @@
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# Environment / Secrets
+.env
+.env.*
+*.key
+credentials.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Playwright MCP
+.playwright-mcp/
+
+# Claude
+.claude/

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "starter",
+    "name": "Starter Setup",
+    "description": "Quick start with local model, file access, and basic tools",
+    "model": "mlx-community/Qwen3-4B-4bit",
+    "minTier": "small",
+    "skills": [],
+    "mcpServers": ["filesystem"],
+    "nativeTools": ["shell", "web-fetch", "language-detection", "sentiment"]
+  },
+  {
+    "id": "research-setup",
+    "name": "Research Assistant",
+    "description": "Complete research agent with web browsing, search, and file access",
+    "model": "mlx-community/Qwen3-8B-4bit",
+    "minTier": "medium",
+    "skills": ["web-research"],
+    "mcpServers": ["filesystem", "brave-search", "fetch"],
+    "nativeTools": ["web-fetch", "entity-extraction", "sentiment", "language-detection"]
+  },
+  {
+    "id": "developer-setup",
+    "name": "Developer Toolkit",
+    "description": "Coding assistant with GitHub integration and shell access",
+    "model": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+    "minTier": "medium",
+    "skills": ["code-review"],
+    "mcpServers": ["filesystem", "github"],
+    "nativeTools": ["shell", "web-fetch", "language-detection"]
+  },
+  {
+    "id": "macos-automation",
+    "name": "macOS Automation",
+    "description": "Full macOS automation with AppleScript, shortcuts, and calendar",
+    "model": "mlx-community/Qwen3-8B-4bit",
+    "minTier": "medium",
+    "skills": ["daily-digest"],
+    "mcpServers": ["filesystem"],
+    "nativeTools": ["applescript", "shell", "shortcuts", "calendar", "reminders", "email"]
+  },
+  {
+    "id": "data-analysis",
+    "name": "Data Analysis",
+    "description": "Data processing with database access and shell tools",
+    "model": "mlx-community/Qwen3-14B-4bit",
+    "minTier": "medium",
+    "skills": [],
+    "mcpServers": ["filesystem", "sqlite", "postgres"],
+    "nativeTools": ["shell", "web-fetch", "entity-extraction"]
+  },
+  {
+    "id": "meeting-copilot",
+    "name": "Meeting Copilot",
+    "description": "Transcribe, summarize, and track action items from meetings",
+    "model": "mlx-community/Qwen3-8B-4bit",
+    "minTier": "medium",
+    "skills": ["meeting-summarizer"],
+    "mcpServers": [],
+    "nativeTools": ["transcription", "calendar", "reminders", "sentiment"]
+  },
+  {
+    "id": "power-user",
+    "name": "Power User",
+    "description": "Large model with full toolset for demanding tasks",
+    "model": "mlx-community/Qwen3-32B-4bit",
+    "minTier": "large",
+    "skills": ["web-research", "code-review"],
+    "mcpServers": ["filesystem", "github", "brave-search", "memory"],
+    "nativeTools": ["shell", "applescript", "web-fetch", "browser", "entity-extraction", "sentiment", "language-detection"]
+  }
+]

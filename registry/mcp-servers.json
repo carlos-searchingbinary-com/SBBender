@@ -1,0 +1,146 @@
+[
+  {
+    "id": "filesystem",
+    "name": "Filesystem",
+    "description": "Read, write, and search local files and directories",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "/Users"],
+    "category": "system",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["file-access", "essential"]
+  },
+  {
+    "id": "brave-search",
+    "name": "Brave Search",
+    "description": "Web search powered by Brave Search API",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "environment": {
+      "BRAVE_API_KEY": ""
+    },
+    "category": "web",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["web-search", "research"]
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "description": "Interact with GitHub repositories, issues, and pull requests",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-github"],
+    "environment": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+    },
+    "category": "development",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["github", "code-review", "development"]
+  },
+  {
+    "id": "postgres",
+    "name": "PostgreSQL",
+    "description": "Query and explore PostgreSQL databases",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-postgres"],
+    "environment": {
+      "POSTGRES_CONNECTION_STRING": ""
+    },
+    "category": "data",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["database", "sql"]
+  },
+  {
+    "id": "sqlite",
+    "name": "SQLite",
+    "description": "Read and query SQLite databases",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-sqlite"],
+    "category": "data",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["database", "sql"]
+  },
+  {
+    "id": "memory",
+    "name": "Memory",
+    "description": "Persistent knowledge graph for storing and retrieving information",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-memory"],
+    "category": "knowledge",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["memory", "knowledge-graph"]
+  },
+  {
+    "id": "puppeteer",
+    "name": "Puppeteer",
+    "description": "Browser automation for web scraping and interaction",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-puppeteer"],
+    "category": "web",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["browser", "scraping", "automation"]
+  },
+  {
+    "id": "fetch",
+    "name": "Fetch",
+    "description": "HTTP client for fetching web pages and APIs",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-fetch"],
+    "category": "web",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["http", "api", "web-fetch"]
+  },
+  {
+    "id": "slack",
+    "name": "Slack",
+    "description": "Read and send Slack messages, manage channels",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-slack"],
+    "environment": {
+      "SLACK_BOT_TOKEN": ""
+    },
+    "category": "communication",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["slack", "messaging", "communication"]
+  },
+  {
+    "id": "google-drive",
+    "name": "Google Drive",
+    "description": "Access and search Google Drive files",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-gdrive"],
+    "category": "productivity",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["google-drive", "files", "productivity"]
+  },
+  {
+    "id": "sequential-thinking",
+    "name": "Sequential Thinking",
+    "description": "Dynamic reasoning tool for complex problem-solving",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "category": "reasoning",
+    "minModelTier": "medium",
+    "requiredBins": ["npx"],
+    "tags": ["reasoning", "thinking", "problem-solving"]
+  },
+  {
+    "id": "everything",
+    "name": "Everything",
+    "description": "Reference MCP server with prompts, resources, and tools for testing",
+    "command": "npx",
+    "arguments": ["-y", "@modelcontextprotocol/server-everything"],
+    "category": "development",
+    "minModelTier": "small",
+    "requiredBins": ["npx"],
+    "tags": ["testing", "development", "reference"]
+  }
+]
