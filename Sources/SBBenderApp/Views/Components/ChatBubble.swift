@@ -18,9 +18,7 @@ struct ChatBubble: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                Text(message.content)
-                    .textSelection(.enabled)
-                    .font(.body)
+                messageContent
 
                 if let calls = message.toolCalls, !calls.isEmpty {
                     ForEach(calls) { call in
@@ -57,6 +55,58 @@ struct ChatBubble: View {
         case "error": .red
         default: .secondary
         }
+    }
+
+    // MARK: - Message Content (with inline chart detection)
+
+    @ViewBuilder
+    private var messageContent: some View {
+        if message.role == "assistant", let (before, chartSpec, after) = extractChart(from: message.content) {
+            if !before.isEmpty {
+                Text(before)
+                    .textSelection(.enabled)
+                    .font(.body)
+            }
+            ChartRendererView(spec: chartSpec)
+            if !after.isEmpty {
+                Text(after)
+                    .textSelection(.enabled)
+                    .font(.body)
+            }
+        } else {
+            Text(message.content)
+                .textSelection(.enabled)
+                .font(.body)
+        }
+    }
+
+    private func extractChart(from text: String) -> (String, ChartSpec, String)? {
+        // Find JSON object containing "__chart__"
+        guard let startIdx = text.range(of: "{\"__chart__\"")?.lowerBound
+                ?? text.range(of: "{ \"__chart__\"")?.lowerBound else { return nil }
+
+        // Find matching closing brace
+        let substring = text[startIdx...]
+        var depth = 0
+        var endIdx = substring.endIndex
+        for i in substring.indices {
+            if substring[i] == "{" { depth += 1 }
+            if substring[i] == "}" {
+                depth -= 1
+                if depth == 0 {
+                    endIdx = text.index(after: i)
+                    break
+                }
+            }
+        }
+
+        let jsonStr = String(text[startIdx..<endIdx])
+        guard let data = jsonStr.data(using: .utf8),
+              let spec = try? JSONDecoder().decode(ChartSpec.self, from: data) else { return nil }
+
+        let before = String(text[text.startIndex..<startIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let after = String(text[endIdx...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (before, spec, after)
     }
 
     private var bubbleBackground: some ShapeStyle {
