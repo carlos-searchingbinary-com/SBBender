@@ -83,6 +83,44 @@ public actor Agent {
         try await run(messages: userMessages, eventHandler: nil)
     }
 
+    /// Run the agent and parse the response into a structured `Codable` type.
+    ///
+    /// The model is instructed to return valid JSON matching the expected type.
+    /// The raw text is parsed via `JSONDecoder`; if parsing fails, the error
+    /// is included in the thrown `SBBenderError`.
+    public func run<T: Codable & Sendable>(_ input: String, as type: T.Type) async throws -> T {
+        let schemaHint = String(describing: T.self)
+        let wrappedInput = """
+        \(input)
+
+        IMPORTANT: Respond ONLY with valid JSON that can be decoded as \(schemaHint). \
+        No markdown, no explanation, no code fences — just the JSON object.
+        """
+        let result = try await run(wrappedInput)
+        let text = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip markdown code fences if the model added them anyway
+        let cleaned: String
+        if text.hasPrefix("```") {
+            let lines = text.components(separatedBy: "\n")
+            let inner = lines.dropFirst().reversed().drop(while: { $0.hasPrefix("```") }).reversed()
+            cleaned = inner.joined(separator: "\n")
+        } else {
+            cleaned = text
+        }
+
+        guard let data = cleaned.data(using: .utf8) else {
+            throw SBBenderError.invalidResponse("Could not convert response to data")
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw SBBenderError.invalidResponse(
+                "Failed to decode \(schemaHint) from response: \(error.localizedDescription)\nRaw: \(cleaned.prefix(500))"
+            )
+        }
+    }
+
     /// Internal run with optional event handler for streaming.
     private func run(
         messages userMessages: [Message],
@@ -159,6 +197,14 @@ public actor Agent {
         var totalToolCalls = 0
 
         while iterations < configuration.maxIterations {
+            // Enforce token budget before each model call
+            if let maxTokens = configuration.maxContextTokens {
+                let before = runMessages.count
+                runMessages = ContextManager.enforceTokenBudget(runMessages, maxTokens: maxTokens)
+                if runMessages.count < before {
+                    Log.agent.info("Token budget enforced: \(before) → \(runMessages.count) messages")
+                }
+            }
             guard !isCancelled else {
                 result.status = .cancelled
                 eventHandler?(.cancelled)

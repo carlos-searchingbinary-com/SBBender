@@ -51,6 +51,7 @@ public enum SBBenderError: LocalizedError, Sendable {
 
     // General
     case invalidConfiguration(String)
+    case invalidResponse(String)
     case jsonParsingFailed(String)
 
     public var errorDescription: String? {
@@ -115,6 +116,8 @@ public enum SBBenderError: LocalizedError, Sendable {
             return "Workflow step '\(step)' failed: \(reason)"
         case .invalidConfiguration(let reason):
             return "Invalid configuration: \(reason)"
+        case .invalidResponse(let reason):
+            return "Invalid response: \(reason)"
         case .jsonParsingFailed(let reason):
             return "JSON parsing failed: \(reason)"
         }

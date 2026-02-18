@@ -109,6 +109,41 @@ public struct ContextManager: Sendable {
         }
         return totalChars / 4
     }
+
+    /// Enforce a token budget on run messages by removing older non-system
+    /// messages until the estimated token count fits within the budget.
+    ///
+    /// Preserves: system messages (first), the most recent user message, and
+    /// as many recent assistant/tool messages as fit.
+    public static func enforceTokenBudget(
+        _ messages: [Message],
+        maxTokens: Int
+    ) -> [Message] {
+        let estimated = estimateTokens(messages)
+        guard estimated > maxTokens else { return messages }
+
+        // Separate system messages (always kept) from the rest
+        let systemMessages = messages.filter { $0.role == .system }
+        let nonSystem = messages.filter { $0.role != .system }
+
+        let systemTokens = estimateTokens(systemMessages)
+        let budget = maxTokens - systemTokens
+        guard budget > 0 else { return systemMessages }
+
+        // Keep as many recent non-system messages as fit within budget
+        var kept: [Message] = []
+        var usedTokens = 0
+        for msg in nonSystem.reversed() {
+            let msgTokens = estimateTokens([msg])
+            if usedTokens + msgTokens > budget && !kept.isEmpty {
+                break
+            }
+            kept.insert(msg, at: 0)
+            usedTokens += msgTokens
+        }
+
+        return systemMessages + kept
+    }
 }
 
 // MARK: - Tool Output Store

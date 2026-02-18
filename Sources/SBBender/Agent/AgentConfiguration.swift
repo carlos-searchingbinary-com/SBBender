@@ -12,6 +12,9 @@ public struct AgentConfiguration: Sendable {
     public var markdown: Bool
     public var maxHistoryMessages: Int?
     public var maxHistoryToolResults: Int?
+    /// Maximum estimated tokens for the context window. When exceeded,
+    /// older messages are aggressively trimmed before the model call.
+    public var maxContextTokens: Int?
 
     public init(
         name: String = "Agent",
@@ -23,7 +26,8 @@ public struct AgentConfiguration: Sendable {
         addDateToSystemPrompt: Bool = true,
         markdown: Bool = true,
         maxHistoryMessages: Int? = nil,
-        maxHistoryToolResults: Int? = nil
+        maxHistoryToolResults: Int? = nil,
+        maxContextTokens: Int? = nil
     ) {
         self.name = name
         self.instructions = instructions
@@ -35,6 +39,7 @@ public struct AgentConfiguration: Sendable {
         self.markdown = markdown
         self.maxHistoryMessages = maxHistoryMessages
         self.maxHistoryToolResults = maxHistoryToolResults
+        self.maxContextTokens = maxContextTokens
     }
 
     /// Build the full system prompt from configuration.
