@@ -409,7 +409,7 @@ struct RealWorldTests {
 
     // MARK: - Autonomous Delegation with Real Tool Execution
 
-    @Test("Autonomous swarm: leader delegates, worker executes real shell command")
+    @Test("Autonomous swarm: leader delegates via tool, worker executes real shell command")
     func testAutonomousDelegationWithRealExecution() async throws {
         let shellCall = ToolCall(
             id: "tc-sh",
@@ -426,9 +426,18 @@ struct RealWorldTests {
             nativeTools: [ShellSkill(allowedCommands: ["echo"])]
         )
 
+        // Leader uses delegate_to tool call (the swarm registers this tool automatically)
+        let delegateCall = ToolCall(
+            id: "tc-delegate",
+            name: "delegate_to",
+            arguments: #"{"member_name": "ShellWorker", "task": "Calculate 2+2 using shell"}"#
+        )
         let leader = Agent(
             configuration: AgentConfiguration(name: "Leader"),
-            model: MockProvider(responses: ["DELEGATE:shell-worker:Calculate 2+2 using shell"])
+            model: MockProvider(
+                responses: ["The answer is 4."],
+                toolCallResponses: [([delegateCall], "")]
+            )
         )
 
         let swarm = Swarm(
