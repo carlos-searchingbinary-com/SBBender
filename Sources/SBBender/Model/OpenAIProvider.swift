@@ -203,10 +203,14 @@ public struct OpenAIProvider: ModelProvider, Sendable {
                             }
                         }
 
-                        if let finishReason = choices.first?["finish_reason"] as? String, finishReason == "tool_calls" {
-                            for (_, tc) in pendingToolCalls {
+                        if let finishReason = choices.first?["finish_reason"] as? String,
+                           !pendingToolCalls.isEmpty,
+                           ["tool_calls", "tool_use", "stop"].contains(finishReason) {
+                            for key in pendingToolCalls.keys.sorted() {
+                                let tc = pendingToolCalls[key]!
                                 continuation.yield(.toolCall(ToolCall(name: tc.name, arguments: tc.args)))
                             }
+                            pendingToolCalls.removeAll()
                         }
                     }
 

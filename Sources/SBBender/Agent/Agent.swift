@@ -108,6 +108,13 @@ public actor Agent {
             }
         }
 
+        // 1c. Warn if model doesn't support tool calling but tools are registered
+        if !self.model.supportsToolCalling && !self.toolRegistry.allTools.isEmpty {
+            let toolCount = self.toolRegistry.allTools.count
+            let modelName = self.model.displayName
+            Log.agent.warning("Model \(modelName) does not support tool calling, but \(toolCount) tools are registered. Tools will not work.")
+        }
+
         // 2. Build system prompt with knowledge and learning context
         let knowledgeContext = try await buildKnowledgeContext(for: userMessages)
         let learningContext = try await buildLearningContext()

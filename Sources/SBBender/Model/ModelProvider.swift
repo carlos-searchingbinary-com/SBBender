@@ -108,6 +108,10 @@ public protocol ModelProvider: Sendable {
     /// Whether this provider is currently available and ready to generate.
     var isAvailable: Bool { get async }
 
+    /// Whether this provider supports tool calling. Providers that don't support
+    /// tool calling should not be used with agents that have tools registered.
+    var supportsToolCalling: Bool { get }
+
     /// Generate a complete response from a list of messages.
     func generate(
         messages: [Message],
@@ -136,6 +140,8 @@ public enum StreamDelta: Sendable {
 // MARK: - Default implementations
 
 extension ModelProvider {
+    public var supportsToolCalling: Bool { true }
+
     public func generateStream(
         messages: [Message],
         config: GenerationConfig,

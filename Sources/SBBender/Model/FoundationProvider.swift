@@ -22,6 +22,8 @@ public final class FoundationProvider: @unchecked Sendable, ModelProvider {
         var available: Bool?
     }
 
+    public var supportsToolCalling: Bool { false }
+
     public init() {}
 
     public var isAvailable: Bool {

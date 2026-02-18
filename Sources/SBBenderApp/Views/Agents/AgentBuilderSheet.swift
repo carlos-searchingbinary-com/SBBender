@@ -495,9 +495,14 @@ struct AgentBuilderSheet: View {
             case .deepinfra:
                 apiModelPicker(models: appState.modelRegistry.deepinfraModels, placeholder: "meta-llama/Llama-4-Scout-17B-16E-Instruct")
             case .foundation:
-                Text("Uses Apple Intelligence (macOS 26+)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Uses Apple Intelligence (macOS 26+)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Label("Apple Intelligence does not support tool calling. Agent tools will not work.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
