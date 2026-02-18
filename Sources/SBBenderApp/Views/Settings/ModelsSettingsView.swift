@@ -235,9 +235,22 @@ struct ModelsSettingsView: View {
                 Label("Downloaded", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
-            } else if downloadState == .downloading {
-                ProgressView()
-                    .controlSize(.small)
+            } else if case .downloading(let progress, let speed) = downloadState {
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView(value: progress)
+                        .frame(width: 80)
+                    HStack(spacing: 4) {
+                        Text("\(Int(progress * 100))%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        if let speed, speed > 0 {
+                            Text(Self.formatSpeed(speed))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
             } else if case .error(let msg) = downloadState {
                 VStack(spacing: 2) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -314,9 +327,22 @@ struct ModelsSettingsView: View {
                 Label("Downloaded", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
-            } else if downloadState == .downloading {
-                ProgressView()
-                    .controlSize(.small)
+            } else if case .downloading(let progress, let speed) = downloadState {
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView(value: progress)
+                        .frame(width: 80)
+                    HStack(spacing: 4) {
+                        Text("\(Int(progress * 100))%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        if let speed, speed > 0 {
+                            Text(Self.formatSpeed(speed))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
             } else {
                 Button("Download") {
                     Task { await appState.modelRegistry.downloadMLXModel(id: result.modelId) }
@@ -521,5 +547,12 @@ struct ModelsSettingsView: View {
         if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
         if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
         return "\(count)"
+    }
+
+    private static func formatSpeed(_ bytesPerSec: Double) -> String {
+        if bytesPerSec >= 1_073_741_824 { return String(format: "%.1f GB/s", bytesPerSec / 1_073_741_824) }
+        if bytesPerSec >= 1_048_576 { return String(format: "%.1f MB/s", bytesPerSec / 1_048_576) }
+        if bytesPerSec >= 1024 { return String(format: "%.0f KB/s", bytesPerSec / 1024) }
+        return String(format: "%.0f B/s", bytesPerSec)
     }
 }

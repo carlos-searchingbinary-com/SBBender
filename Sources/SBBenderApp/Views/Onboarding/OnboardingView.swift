@@ -236,9 +236,15 @@ struct OnboardingView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                    case .downloading:
-                        ProgressView()
-                            .controlSize(.small)
+                    case .downloading(let progress, _):
+                        VStack(spacing: 2) {
+                            ProgressView(value: progress)
+                                .frame(width: 60)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
                     case .completed:
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)

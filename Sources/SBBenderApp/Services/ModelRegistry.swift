@@ -30,7 +30,7 @@ final class ModelRegistry {
 
     enum MLXDownloadState: Equatable {
         case idle
-        case downloading
+        case downloading(progress: Double, speedBytesPerSec: Double?)
         case completed
         case error(String)
     }
@@ -146,14 +146,25 @@ final class ModelRegistry {
     /// Download an MLX model from HuggingFace Hub.
     /// Uses LLMModelFactory which handles caching to ~/.cache/huggingface/hub/
     func downloadMLXModel(id: String) async {
-        guard mlxDownloadState[id] != .downloading else { return }
-        mlxDownloadState[id] = .downloading
+        if case .downloading = mlxDownloadState[id] { return }
+        mlxDownloadState[id] = .downloading(progress: 0, speedBytesPerSec: nil)
 
         do {
             let config = ModelConfiguration(id: id)
             // loadContainer downloads if not cached, then loads into memory.
-            // We just need the download — the model will be unloaded when the container is released.
-            _ = try await LLMModelFactory.shared.loadContainer(configuration: config)
+            // Progress handler reports download fraction and speed.
+            _ = try await LLMModelFactory.shared.loadContainer(
+                configuration: config
+            ) { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    let fraction = progress.fractionCompleted
+                    let speed = progress.userInfo[.throughputKey] as? Double
+                    self?.mlxDownloadState[id] = .downloading(
+                        progress: fraction,
+                        speedBytesPerSec: speed
+                    )
+                }
+            }
             mlxDownloadState[id] = .completed
             // Refresh local models list to pick up the new download
             loadMLXLocal()
