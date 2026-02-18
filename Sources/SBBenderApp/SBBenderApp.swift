@@ -14,12 +14,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct SBBenderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState()
+    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
 
     var body: some Scene {
         WindowGroup {
-            SidebarView()
+            if showOnboarding {
+                OnboardingView {
+                    withAnimation { showOnboarding = false }
+                }
                 .environment(appState)
                 .task { await appState.bootstrap() }
+            } else {
+                SidebarView()
+                    .environment(appState)
+                    .task { await appState.bootstrap() }
+            }
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 1200, height: 800)

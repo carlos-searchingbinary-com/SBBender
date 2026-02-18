@@ -83,6 +83,12 @@ public actor GRDBStorage: StorageBackend {
             }
         }
 
+        migrator.registerMigration("v2_session_title") { db in
+            try db.alter(table: "sessions") { t in
+                t.add(column: "title", .text).defaults(to: "New Chat")
+            }
+        }
+
         try migrator.migrate(dbWriter)
         Log.storage.info("Database migration completed")
     }
@@ -106,9 +112,10 @@ public actor GRDBStorage: StorageBackend {
         try await dbWriter.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO sessions (id, agentID, messages, state, createdAt, updatedAt)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (id, agentID, title, messages, state, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
                     messages = excluded.messages,
                     state = excluded.state,
                     updatedAt = excluded.updatedAt
@@ -116,6 +123,7 @@ public actor GRDBStorage: StorageBackend {
                 arguments: [
                     session.id,
                     session.agentID,
+                    session.title,
                     messagesData,
                     stateData,
                     session.createdAt.timeIntervalSinceReferenceDate,
@@ -330,6 +338,7 @@ public actor GRDBStorage: StorageBackend {
         return Session(
             id: row["id"],
             agentID: row["agentID"],
+            title: (row["title"] as String?) ?? "New Chat",
             messages: messages,
             state: state,
             createdAt: Date(timeIntervalSinceReferenceDate: row["createdAt"]),

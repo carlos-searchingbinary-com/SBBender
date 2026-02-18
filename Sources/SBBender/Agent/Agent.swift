@@ -400,6 +400,14 @@ public actor Agent {
         isCancelled = false
     }
 
+    /// Set the session ID (e.g. when switching between conversations).
+    public func setSessionID(_ id: String) {
+        chatHistory = []
+        sessionState = [:]
+        sessionID = id
+        isCancelled = false
+    }
+
     // MARK: - Mutators
 
     public func addTool(_ tool: Tool) {

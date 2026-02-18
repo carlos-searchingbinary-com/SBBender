@@ -39,16 +39,13 @@ struct AgentChatView: View {
             }
         }
         .task { await setupAgent() }
-        .alert("Clear conversation?", isPresented: $showClearConfirmation) {
-            Button("Clear", role: .destructive) {
-                Task {
-                    let storage = await appState.persistence?.storage
-                    await viewModel.clearChat(agent: agent, storage: storage, agentID: agentID)
-                }
+        .alert("Start new conversation?", isPresented: $showClearConfirmation) {
+            Button("New Chat", role: .destructive) {
+                Task { await newChat() }
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will permanently delete all messages in this conversation.")
+            Text("The current conversation will be saved and you can switch back to it later.")
         }
     }
 
@@ -724,6 +721,44 @@ struct AgentChatView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
+            if viewModel.sessions.count > 1 {
+                Menu {
+                    ForEach(viewModel.sessions) { session in
+                        Button {
+                            Task {
+                                let storage = await appState.persistence?.storage
+                                if let agent { await agent.setSessionID(session.id) }
+                                await viewModel.switchSession(to: session.id, storage: storage)
+                            }
+                        } label: {
+                            HStack {
+                                Text(session.title)
+                                if session.id == viewModel.currentSessionID {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    ForEach(viewModel.sessions) { session in
+                        if session.id != viewModel.currentSessionID {
+                            Button(role: .destructive) {
+                                Task {
+                                    let storage = await appState.persistence?.storage
+                                    await viewModel.deleteSession(session.id, storage: storage, agentID: agentID)
+                                }
+                            } label: {
+                                Label("Delete \"\(session.title)\"", systemImage: "trash")
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .help("Chat History")
+            }
+        }
+        ToolbarItem(placement: .automatic) {
             Button {
                 showEditSheet = true
             } label: {
@@ -747,14 +782,6 @@ struct AgentChatView: View {
             }
             .help("Toggle Info Panel")
         }
-        ToolbarItem(placement: .automatic) {
-            Button {
-                showClearConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-            }
-            .help("Clear Chat")
-        }
     }
 
     // MARK: - Actions
@@ -768,18 +795,24 @@ struct AgentChatView: View {
 
     private func newChat() async {
         let storage = await appState.persistence?.storage
-        await viewModel.clearChat(agent: agent, storage: storage, agentID: agentID)
+        await viewModel.newChat(agent: agent, storage: storage, agentID: agentID)
     }
 
     private func send() async {
         guard let agent else { return }
         let providerName = config.flatMap { ProviderType(rawValue: $0.providerType)?.displayName }
+        let isFirstMessage = viewModel.messages.count(where: { $0.role == "user" }) <= 1
         await viewModel.sendMessage(
             agent: agent,
             agentName: config?.name ?? "Agent",
             providerType: providerName,
             modelID: config?.modelID
         )
+        // Auto-title session from first user message
+        if isFirstMessage, let agentID = config?.id {
+            let storage = await appState.persistence?.storage
+            await viewModel.updateSessionTitle(storage: storage, agentID: agentID)
+        }
     }
 
     private func handleFileDrop(_ providers: [NSItemProvider]) {

@@ -4,6 +4,7 @@ import Foundation
 public struct Session: Sendable, Codable, Identifiable {
     public let id: String
     public let agentID: String
+    public var title: String
     public var messages: [Message]
     public var state: [String: String]
     public let createdAt: Date
@@ -12,6 +13,7 @@ public struct Session: Sendable, Codable, Identifiable {
     public init(
         id: String = UUID().uuidString,
         agentID: String = "",
+        title: String = "New Chat",
         messages: [Message] = [],
         state: [String: String] = [:],
         createdAt: Date = Date(),
@@ -19,6 +21,7 @@ public struct Session: Sendable, Codable, Identifiable {
     ) {
         self.id = id
         self.agentID = agentID
+        self.title = title
         self.messages = messages
         self.state = state
         self.createdAt = createdAt

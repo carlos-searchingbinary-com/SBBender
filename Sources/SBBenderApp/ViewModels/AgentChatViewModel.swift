@@ -2,6 +2,13 @@ import Foundation
 import SwiftUI
 import SBBender
 
+/// Lightweight session summary for the session picker (no messages loaded).
+struct SessionSummary: Identifiable {
+    let id: String
+    let title: String
+    let updatedAt: Date
+}
+
 @MainActor
 @Observable
 final class AgentChatViewModel {
@@ -14,6 +21,10 @@ final class AgentChatViewModel {
     var toolOutputEntries: [ToolOutputEntry] = []
     var activityEvents: [ActivityEvent] = []
     var elapsedSeconds: Int = 0
+
+    // Session management
+    var currentSessionID: String?
+    var sessions: [SessionSummary] = []
 
     private var streamTask: Task<Void, Never>?
     private var elapsedTimer: Task<Void, Never>?
@@ -167,34 +178,50 @@ final class AgentChatViewModel {
         status = .idle
     }
 
+    // MARK: - Session Management
+
+    /// Load the most recent session for this agent, or start fresh.
     func loadConversation(storage: (any StorageBackend)?, agentID: String) async {
         guard let storage else { return }
         do {
-            guard let session = try await storage.getSession(id: agentID) else { return }
-            let loaded: [ChatMessage] = session.messages.compactMap { msg in
-                guard msg.role != .system && msg.role != .tool else { return nil }
-                let text = msg.content.compactMap { content -> String? in
-                    if case .text(let s) = content { return s }
-                    return nil
-                }.joined()
-                guard !text.isEmpty else { return nil }
-                let role = msg.role == .user ? "user" : "assistant"
-                return ChatMessage(
-                    id: msg.id,
-                    role: role,
-                    content: text,
-                    toolCalls: msg.toolCalls
-                )
+            // Load session list
+            let allSessions = try await storage.listSessions(agentID: agentID)
+            sessions = allSessions.map { s in
+                SessionSummary(id: s.id, title: s.title, updatedAt: s.updatedAt)
             }
-            if !loaded.isEmpty {
-                messages = loaded
+
+            // Load most recent session if we don't have one selected
+            if currentSessionID == nil, let latest = allSessions.first {
+                currentSessionID = latest.id
+                loadMessages(from: latest)
+            } else if let sid = currentSessionID,
+                      let session = allSessions.first(where: { $0.id == sid }) {
+                loadMessages(from: session)
             }
         } catch {
             // Session load failed — start fresh
         }
     }
 
-    func clearChat(agent: Agent?, storage: (any StorageBackend)?, agentID: String?) async {
+    /// Switch to a different session.
+    func switchSession(to sessionID: String, storage: (any StorageBackend)?) async {
+        guard let storage else { return }
+        do {
+            guard let session = try await storage.getSession(id: sessionID) else { return }
+            currentSessionID = sessionID
+            loadMessages(from: session)
+            metrics = nil
+            toolOutputEntries = []
+            activityEvents = []
+            statusMessage = ""
+            status = .idle
+        } catch {
+            // Switch failed
+        }
+    }
+
+    /// Create a new chat session (preserving the old one).
+    func newChat(agent: Agent?, storage: (any StorageBackend)?, agentID: String?) async {
         messages.removeAll()
         metrics = nil
         toolOutputEntries = []
@@ -204,8 +231,96 @@ final class AgentChatViewModel {
         if let agent {
             await agent.reset()
         }
-        if let storage, let agentID {
-            try? await storage.deleteSession(id: agentID)
+
+        // Create a new session ID — old session stays in storage
+        let newID = UUID().uuidString
+        currentSessionID = newID
+
+        // Set the agent's sessionID to the new session
+        if let agent, let agentID {
+            await agent.setSessionID(newID)
+
+            // Persist the empty session so it shows in the list
+            if let storage {
+                let session = Session(id: newID, agentID: agentID, title: "New Chat")
+                try? await storage.upsertSession(session)
+                // Refresh session list
+                await loadSessionList(storage: storage, agentID: agentID)
+            }
+        }
+    }
+
+    /// Delete a specific session.
+    func deleteSession(_ sessionID: String, storage: (any StorageBackend)?, agentID: String?) async {
+        guard let storage else { return }
+        try? await storage.deleteSession(id: sessionID)
+        sessions.removeAll { $0.id == sessionID }
+
+        // If we deleted the current session, switch to another or start fresh
+        if currentSessionID == sessionID {
+            if let next = sessions.first {
+                await switchSession(to: next.id, storage: storage)
+            } else {
+                await newChat(agent: nil, storage: storage, agentID: agentID)
+            }
+        }
+    }
+
+    /// Auto-generate session title from first user message.
+    func updateSessionTitle(storage: (any StorageBackend)?, agentID: String) async {
+        guard let storage, let sid = currentSessionID else { return }
+        let firstUserMessage = messages.first(where: { $0.role == "user" })?.content ?? "New Chat"
+        let title = String(firstUserMessage.prefix(50))
+
+        do {
+            if var session = try await storage.getSession(id: sid) {
+                session.title = title
+                session.updatedAt = Date()
+                try await storage.upsertSession(session)
+                if let idx = sessions.firstIndex(where: { $0.id == sid }) {
+                    sessions[idx] = SessionSummary(id: sid, title: title, updatedAt: Date())
+                }
+            }
+        } catch {
+            // Title update failed — not critical
+        }
+    }
+
+    // MARK: - Legacy clearChat (for backwards compat)
+
+    func clearChat(agent: Agent?, storage: (any StorageBackend)?, agentID: String?) async {
+        await newChat(agent: agent, storage: storage, agentID: agentID)
+    }
+
+    // MARK: - Helpers
+
+    private func loadMessages(from session: Session) {
+        let loaded: [ChatMessage] = session.messages.compactMap { msg in
+            guard msg.role != .system && msg.role != .tool else { return nil }
+            let text = msg.content.compactMap { content -> String? in
+                if case .text(let s) = content { return s }
+                return nil
+            }.joined()
+            guard !text.isEmpty else { return nil }
+            let role = msg.role == .user ? "user" : "assistant"
+            return ChatMessage(
+                id: msg.id,
+                role: role,
+                content: text,
+                toolCalls: msg.toolCalls
+            )
+        }
+        messages = loaded
+    }
+
+    private func loadSessionList(storage: any StorageBackend, agentID: String) async {
+        do {
+            let allSessions = try await storage.listSessions(agentID: agentID)
+            sessions = allSessions.map { s in
+                SessionSummary(id: s.id, title: s.title, updatedAt: s.updatedAt)
+            }
+        } catch {
+            // List load failed
         }
     }
 }
