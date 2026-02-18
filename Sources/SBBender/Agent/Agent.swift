@@ -24,6 +24,9 @@ public actor Agent {
     private var chatHistory: [Message]
     private var isCancelled: Bool = false
 
+    /// Pending tool confirmations: callID → continuation
+    private var pendingConfirmations: [String: CheckedContinuation<Bool, Never>] = [:]
+
     /// Store for full tool outputs — the model sees summarized versions,
     /// but the full output is always available for inspection.
     public let toolOutputStore: ToolOutputStore
@@ -258,6 +261,28 @@ public actor Agent {
                     continue
                 }
 
+                // Check if tool requires user confirmation
+                if tool.requiresConfirmation {
+                    eventHandler?(.toolConfirmationRequired(name: tc.name, id: tc.id, arguments: tc.arguments))
+
+                    let approved = await withCheckedContinuation { continuation in
+                        self.pendingConfirmations[tc.id] = continuation
+                    }
+
+                    if !approved {
+                        let rejectedMsg = "Tool call rejected by user"
+                        eventHandler?(.toolCallError(name: tc.name, error: rejectedMsg))
+                        let toolResult = Message.tool(id: tc.id, result: "Error: \(rejectedMsg)", name: tc.name)
+                        runMessages.append(toolResult)
+                        chatHistory.append(toolResult)
+                        result.toolExecutions.append(ToolExecution(
+                            toolName: tc.name, callID: tc.id, arguments: tc.arguments,
+                            error: rejectedMsg
+                        ))
+                        continue
+                    }
+                }
+
                 eventHandler?(.toolCallStarted(name: tc.name, id: tc.id))
                 let toolStart = CFAbsoluteTimeGetCurrent()
 
@@ -384,6 +409,20 @@ public actor Agent {
             continuation.onTermination = { @Sendable _ in
                 task.cancel()
             }
+        }
+    }
+
+    /// Approve a pending tool call that requires confirmation.
+    public func approveToolCall(id: String) {
+        if let continuation = pendingConfirmations.removeValue(forKey: id) {
+            continuation.resume(returning: true)
+        }
+    }
+
+    /// Reject a pending tool call that requires confirmation.
+    public func rejectToolCall(id: String) {
+        if let continuation = pendingConfirmations.removeValue(forKey: id) {
+            continuation.resume(returning: false)
         }
     }
 

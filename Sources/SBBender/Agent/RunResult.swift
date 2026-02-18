@@ -16,6 +16,9 @@ public enum RunEvent: Sendable {
     case toolCallStarted(name: String, id: String)
     case toolCallCompleted(name: String, result: String)
     case toolCallError(name: String, error: String)
+    /// Emitted when a tool with `requiresConfirmation` is about to execute.
+    /// Call `agent.approveToolCall(id:)` or `agent.rejectToolCall(id:)` to proceed.
+    case toolConfirmationRequired(name: String, id: String, arguments: String)
     case modelRequestStarted
     case modelRequestCompleted(ModelMetrics)
     case completed(RunResult)

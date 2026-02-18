@@ -136,46 +136,78 @@ public actor Swarm {
             throw SBBenderError.swarmDelegationFailed("Autonomous mode requires a leader agent")
         }
 
-        // Build a delegation tool that lets the leader assign work
-        let memberNames = memberOrder.joined(separator: ", ")
-        let delegationPrompt = """
-        You are the leader of a team. Delegate the following task to the appropriate team member(s).
-        Available members: \(memberNames)
+        // Collect member results from delegation calls
+        let delegationResults = DelegationResultStore()
+
+        // Build member descriptions for the system prompt
+        var memberDescriptions: [String] = []
+        for key in memberOrder {
+            guard let member = members[key] else { continue }
+            let name = await member.configuration.name
+            memberDescriptions.append(name)
+        }
+        let memberList = memberDescriptions.joined(separator: ", ")
+
+        // Create a delegate_to tool that the leader calls to assign work
+        let capturedMembers = members
+        let capturedMemberOrder = memberOrder
+        let delegateTool = Tool(
+            name: "delegate_to",
+            description: "Delegate a task to a team member. Available members: \(memberList)",
+            parameters: JSONSchema(
+                type: "object",
+                properties: [
+                    "member_name": PropertySchema(type: "string", description: "Name of the team member to delegate to. One of: \(memberList)"),
+                    "task": PropertySchema(type: "string", description: "The specific task or instruction for this member"),
+                ],
+                required: ["member_name", "task"]
+            )
+        ) { arguments, _ in
+            // Parse arguments
+            guard let data = arguments.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let memberName = json["member_name"] as? String,
+                  let task = json["task"] as? String else {
+                return "Error: invalid arguments. Provide member_name and task."
+            }
+
+            // Find member by configuration name (case-insensitive)
+            var targetAgent: Agent?
+            for key in capturedMemberOrder {
+                guard let member = capturedMembers[key] else { continue }
+                let name = await member.configuration.name
+                if name.lowercased() == memberName.lowercased() {
+                    targetAgent = member
+                    break
+                }
+            }
+
+            guard let member = targetAgent else {
+                return "Error: member '\(memberName)' not found. Available: \(memberList)"
+            }
+
+            let result = try await member.run(task)
+            await delegationResults.add(result)
+            return result.content
+        }
+
+        // Register the delegation tool on the leader
+        await leader.addTool(delegateTool)
+
+        // Run the leader with context about its role
+        let prompt = """
+        You are the leader of a team with these members: \(memberList)
+
+        Use the delegate_to tool to assign tasks to team members. You can delegate to one or more members. After receiving their results, synthesize a final answer.
 
         Task: \(input)
-
-        Respond with the member name and the specific instruction for them.
-        Format: DELEGATE:<member_id>:<instruction>
-        You can delegate to multiple members, one per line.
-        When you have all results, provide the final answer.
         """
 
-        let leaderResult = try await leader.run(delegationPrompt)
+        let leaderResult = try await leader.run(prompt)
+        var results = await delegationResults.all
 
-        // Parse delegation commands from leader output
-        var results: [RunResult] = []
-        let lines = leaderResult.content.components(separatedBy: "\n")
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("DELEGATE:") else { continue }
-
-            let parts = trimmed.dropFirst("DELEGATE:".count).components(separatedBy: ":")
-            guard parts.count >= 2 else { continue }
-
-            let memberID = parts[0].trimmingCharacters(in: .whitespaces)
-            let instruction = parts.dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
-
-            if let member = members[memberID] {
-                let result = try await member.run(instruction)
-                results.append(result)
-            }
-        }
-
-        // If no delegations were parsed, treat leader's response as the final answer
-        if results.isEmpty {
-            results.append(leaderResult)
-        }
+        // Always include the leader's final synthesis
+        results.append(leaderResult)
 
         return results
     }
@@ -191,6 +223,19 @@ public actor Swarm {
 
         let result = try await member.run(input)
         return [result]
+    }
+}
+
+/// Thread-safe store for collecting delegation results from tool calls.
+private actor DelegationResultStore {
+    private var results: [RunResult] = []
+
+    func add(_ result: RunResult) {
+        results.append(result)
+    }
+
+    var all: [RunResult] {
+        results
     }
 }
 

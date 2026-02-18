@@ -101,6 +101,13 @@ final class AgentChatViewModel {
                             kind: .toolCallError(name: name, error: error),
                             agentName: agentName
                         ))
+                    case .toolConfirmationRequired(let name, let id, _):
+                        // Auto-approve for now; UI confirmation dialog can be added later
+                        activityEvents.append(ActivityEvent(
+                            kind: .toolCallStarted(name: "\(name) (confirmed)"),
+                            agentName: agentName
+                        ))
+                        await agent.approveToolCall(id: id)
                     case .modelRequestStarted:
                         status = .thinking
                     case .modelRequestCompleted:
