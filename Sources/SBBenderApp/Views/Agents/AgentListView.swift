@@ -235,11 +235,9 @@ private struct AgentCard: View {
 
     @State private var isHovered = false
 
-    /// Resolve skill names from IDs
+    /// Resolve skill names from IDs using metadata for human-readable names
     private var enabledSkillNames: [String] {
-        config.enabledSkillIDs.compactMap { id in
-            skills.first(where: { $0.id == id })?.name
-        }
+        config.enabledSkillIDs.map { SkillMetadata.displayName(for: $0) }
     }
 
     var body: some View {

@@ -436,7 +436,13 @@ struct AgentChatView: View {
                 .padding(8)
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                .onSubmit { Task { await send() } }
+                .onKeyPress(.return, phases: .down) { press in
+                    if press.modifiers.contains(.shift) {
+                        return .ignored // let TextEditor insert newline
+                    }
+                    Task { await send() }
+                    return .handled
+                }
 
             if viewModel.isGenerating {
                 Button { viewModel.cancel() } label: {
@@ -453,7 +459,6 @@ struct AgentChatView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(12)
@@ -868,9 +873,7 @@ struct AgentChatView: View {
     }
 
     private func resolvedSkillNames(_ config: AgentConfig) -> [String] {
-        config.enabledSkillIDs.compactMap { id in
-            appState.nativeSkills.first(where: { $0.id == id })?.name
-        }
+        config.enabledSkillIDs.map { SkillMetadata.displayName(for: $0) }
     }
 
     private func resolvedMCPNames(_ config: AgentConfig) -> [String] {

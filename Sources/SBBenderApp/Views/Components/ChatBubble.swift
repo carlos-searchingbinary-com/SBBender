@@ -4,6 +4,8 @@ import SBBender
 struct ChatBubble: View {
     let message: ChatMessage
 
+    @State private var isHovered = false
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             roleIcon
@@ -28,6 +30,25 @@ struct ChatBubble: View {
         .padding(12)
         .background(bubbleBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(alignment: .topTrailing) {
+            if isHovered && !message.content.isEmpty {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message.content, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                        .padding(6)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+                .transition(.opacity)
+            }
+        }
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 
     private var roleIcon: some View {
