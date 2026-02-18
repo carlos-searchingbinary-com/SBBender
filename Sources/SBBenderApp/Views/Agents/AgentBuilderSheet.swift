@@ -58,6 +58,8 @@ struct AgentBuilderSheet: View {
     @State private var knowledgeHybridWeight: Float = 0.7
     @State private var learningEnabled: Bool = false
     @State private var learningMode: String = "always"
+    @State private var enabledNativeToolIDs: Set<String> = []
+    @State private var nativeToolAvailability: [(skill: any NativeTool, available: Bool)] = []
     @State private var customToolIDs: Set<String> = []
     @State private var mcpServerIDs: Set<String> = []
     @State private var systemPromptFile: String? = nil
@@ -105,6 +107,35 @@ struct AgentBuilderSheet: View {
         }
         .task {
             await loadInstalledSkills()
+            nativeToolAvailability = await appState.availableSkills()
+            // Default: all available tools enabled if config has none set
+            if enabledNativeToolIDs.isEmpty {
+                enabledNativeToolIDs = Set(nativeToolAvailability.filter(\.available).map(\.skill.id))
+            }
+        }
+        .onChange(of: providerType) { _, newValue in
+            Task {
+                switch newValue {
+                case .mlx:
+                    appState.modelRegistry.loadMLXLocal()
+                case .ollama:
+                    await appState.modelRegistry.loadOllamaModels()
+                case .anthropic:
+                    let key = KeychainService.anthropicKey
+                    if !key.isEmpty { await appState.modelRegistry.loadAnthropicModels(apiKey: key) }
+                case .openai:
+                    let key = KeychainService.openaiKey
+                    if !key.isEmpty { await appState.modelRegistry.loadOpenAIModels(apiKey: key) }
+                case .groq:
+                    let key = KeychainService.groqKey
+                    if !key.isEmpty { await appState.modelRegistry.loadGroqModels(apiKey: key) }
+                case .deepinfra:
+                    let key = KeychainService.deepinfraKey
+                    if !key.isEmpty { await appState.modelRegistry.loadDeepInfraModels(apiKey: key) }
+                case .foundation:
+                    break
+                }
+            }
         }
         .sheet(isPresented: $showKnowledgeManager) {
             if let c = config {
@@ -143,6 +174,9 @@ struct AgentBuilderSheet: View {
                     .font(.title2.bold())
                 // Capability summary
                 HStack(spacing: 8) {
+                    if !enabledNativeToolIDs.isEmpty {
+                        Label("\(enabledNativeToolIDs.count) tools", systemImage: "wrench.fill")
+                    }
                     if !attachedSkillIDs.isEmpty {
                         Label("\(attachedSkillIDs.count) skills", systemImage: "doc.text")
                     }
@@ -243,6 +277,11 @@ struct AgentBuilderSheet: View {
 
                 // Instructions — most important thing
                 instructionsSection
+
+                Divider()
+
+                // Native tools
+                nativeToolsPickerSection
 
                 Divider()
 
@@ -728,6 +767,11 @@ struct AgentBuilderSheet: View {
 
     private var capabilitiesStep: some View {
         VStack(alignment: .leading, spacing: 24) {
+            // Native tools grid
+            nativeToolsPickerSection
+
+            Divider()
+
             // SKILL.md instruction skills
             skillsPickerSection
 
@@ -836,6 +880,52 @@ struct AgentBuilderSheet: View {
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Native Tools Picker
+
+    private var nativeToolsPickerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Native Tools")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Button("All") {
+                    for entry in nativeToolAvailability where entry.available {
+                        enabledNativeToolIDs.insert(entry.skill.id)
+                    }
+                }
+                .font(.caption)
+                Button("None") { enabledNativeToolIDs.removeAll() }
+                    .font(.caption)
+            }
+            Text("Built-in Apple capabilities your agent can use as tools")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            ForEach(AppState.skillCategories, id: \.name) { category in
+                let categorySkills = nativeToolAvailability.filter { entry in
+                    category.skillIDs.contains(entry.skill.id)
+                }
+                if !categorySkills.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(category.name, systemImage: category.icon)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        FlowLayout(spacing: 6) {
+                            ForEach(categorySkills, id: \.skill.id) { entry in
+                                let isOn = enabledNativeToolIDs.contains(entry.skill.id)
+                                ToolChip(name: entry.skill.name, isOn: isOn, isAvailable: entry.available) {
+                                    if isOn { enabledNativeToolIDs.remove(entry.skill.id) }
+                                    else { enabledNativeToolIDs.insert(entry.skill.id) }
+                                }
+                                .help(entry.skill.description)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -975,6 +1065,9 @@ struct AgentBuilderSheet: View {
             enableThinking = template.enableThinking
             knowledgeEnabled = template.knowledgeEnabled
             learningEnabled = template.learningEnabled
+            if !template.skillIDs.isEmpty {
+                enabledNativeToolIDs = Set(template.skillIDs)
+            }
         }
     }
 
@@ -984,6 +1077,9 @@ struct AgentBuilderSheet: View {
         if config.gradientHex.count >= 2 { gradientHex = config.gradientHex }
         instructions = config.instructions
         attachedSkillIDs = Set(config.attachedSkillIDs)
+        if !config.enabledSkillIDs.isEmpty {
+            enabledNativeToolIDs = Set(config.enabledSkillIDs)
+        }
         temperature = config.temperature
         topP = config.topP
         maxTokens = config.maxTokens
@@ -1028,6 +1124,7 @@ struct AgentBuilderSheet: View {
         knowledgeHybridWeight = c.knowledgeHybridWeight
         learningEnabled = c.learningEnabled
         learningMode = c.learningMode
+        enabledNativeToolIDs = Set(c.enabledSkillIDs)
         customToolIDs = Set(c.customToolIDs)
         mcpServerIDs = Set(c.mcpServerIDs)
         attachedSkillIDs = Set(c.attachedSkillIDs)
@@ -1057,6 +1154,7 @@ struct AgentBuilderSheet: View {
         agent.knowledgeHybridWeight = knowledgeHybridWeight
         agent.learningEnabled = learningEnabled
         agent.learningMode = learningMode
+        agent.enabledSkillIDs = Array(enabledNativeToolIDs)
         agent.customToolIDs = Array(customToolIDs)
         agent.mcpServerIDs = Array(mcpServerIDs)
         agent.attachedSkillIDs = Array(attachedSkillIDs)

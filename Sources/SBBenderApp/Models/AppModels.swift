@@ -106,6 +106,7 @@ struct ActivityEvent: Identifiable {
 
     enum Kind {
         case thinking
+        case modelRequest(provider: String, model: String)
         case toolCallStarted(name: String)
         case toolCallCompleted(name: String, chars: Int)
         case toolCallError(name: String, error: String)
@@ -117,6 +118,7 @@ struct ActivityEvent: Identifiable {
     var icon: String {
         switch kind {
         case .thinking: "brain"
+        case .modelRequest: "arrow.up.circle"
         case .toolCallStarted: "wrench.and.screwdriver"
         case .toolCallCompleted: "checkmark.circle.fill"
         case .toolCallError: "xmark.circle.fill"
@@ -129,6 +131,7 @@ struct ActivityEvent: Identifiable {
     var color: Color {
         switch kind {
         case .thinking: .purple
+        case .modelRequest: .cyan
         case .toolCallStarted: .orange
         case .toolCallCompleted: .green
         case .toolCallError: .red
@@ -141,6 +144,9 @@ struct ActivityEvent: Identifiable {
     var description: String {
         switch kind {
         case .thinking: return "Thinking..."
+        case .modelRequest(let provider, let model):
+            let shortModel = model.components(separatedBy: "/").last ?? model
+            return "\(provider) \u{2022} \(shortModel)"
         case .toolCallStarted(let name): return "Calling \(name)..."
         case .toolCallCompleted(let name, let chars): return "\(name) returned \(chars) chars"
         case .toolCallError(let name, let error): return "\(name) failed: \(error)"

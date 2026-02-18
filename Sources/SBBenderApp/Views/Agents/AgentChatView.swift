@@ -10,6 +10,7 @@ struct AgentChatView: View {
     @State private var agent: Agent?
     @State private var isFileDropTargeted = false
     @State private var showEditSheet = false
+    @State private var showClearConfirmation = false
 
     private var config: AgentConfig? {
         appState.agentConfig(for: agentID)
@@ -38,6 +39,17 @@ struct AgentChatView: View {
             }
         }
         .task { await setupAgent() }
+        .alert("Clear conversation?", isPresented: $showClearConfirmation) {
+            Button("Clear", role: .destructive) {
+                Task {
+                    let storage = await appState.persistence?.storage
+                    await viewModel.clearChat(agent: agent, storage: storage, agentID: agentID)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently delete all messages in this conversation.")
+        }
     }
 
     // MARK: - Chat Panel
@@ -90,6 +102,11 @@ struct AgentChatView: View {
                     Text(config.name)
                         .font(.subheadline.weight(.semibold))
                     StatusIndicator(status: viewModel.status, size: 7)
+                    if viewModel.isGenerating {
+                        Text(statusLabel)
+                            .font(.caption2)
+                            .foregroundStyle(statusLabelColor)
+                    }
                 }
                 Text(modelLabel(config))
                     .font(.caption2)
@@ -362,6 +379,16 @@ struct AgentChatView: View {
                     ForEach(viewModel.messages) { msg in
                         ChatBubble(message: msg)
                             .id(msg.id)
+                    }
+
+                    if viewModel.isGenerating,
+                       !viewModel.messages.contains(where: { $0.role == "assistant-streaming" }) {
+                        ThinkingBubble(
+                            status: viewModel.status,
+                            elapsed: viewModel.elapsedSeconds,
+                            latestActivity: viewModel.activityEvents.last?.description
+                        )
+                        .id("thinking-bubble")
                     }
                 }
                 .padding()
@@ -701,7 +728,7 @@ struct AgentChatView: View {
         }
         ToolbarItem(placement: .automatic) {
             Button {
-                Task { await newChat() }
+                showClearConfirmation = true
             } label: {
                 Image(systemName: "square.and.pencil")
             }
@@ -717,10 +744,7 @@ struct AgentChatView: View {
         }
         ToolbarItem(placement: .automatic) {
             Button {
-                Task {
-                    let storage = await appState.persistence?.storage
-                    await viewModel.clearChat(agent: agent, storage: storage, agentID: agentID)
-                }
+                showClearConfirmation = true
             } label: {
                 Image(systemName: "trash")
             }
@@ -744,7 +768,13 @@ struct AgentChatView: View {
 
     private func send() async {
         guard let agent else { return }
-        await viewModel.sendMessage(agent: agent, agentName: config?.name ?? "Agent")
+        let providerName = config.flatMap { ProviderType(rawValue: $0.providerType)?.displayName }
+        await viewModel.sendMessage(
+            agent: agent,
+            agentName: config?.name ?? "Agent",
+            providerType: providerName,
+            modelID: config?.modelID
+        )
     }
 
     private func handleFileDrop(_ providers: [NSItemProvider]) {
@@ -804,6 +834,32 @@ struct AgentChatView: View {
     }
 
     // MARK: - Helpers
+
+    private var statusLabel: String {
+        switch viewModel.status {
+        case .thinking:
+            let s = viewModel.elapsedSeconds
+            return s > 0 ? "Thinking... \(s)s" : "Thinking..."
+        case .working:
+            return "Working..."
+        case .streaming:
+            return "Generating"
+        case .error:
+            return "Error"
+        default:
+            return ""
+        }
+    }
+
+    private var statusLabelColor: Color {
+        switch viewModel.status {
+        case .thinking: .purple
+        case .working: .orange
+        case .streaming: .green
+        case .error: .red
+        default: .secondary
+        }
+    }
 
     private func modelLabel(_ config: AgentConfig) -> String {
         let provider = ProviderType(rawValue: config.providerType)?.displayName ?? config.providerType
@@ -907,6 +963,105 @@ struct AgentChatView: View {
         }
 
         return Array(suggestions.prefix(3))
+    }
+}
+
+// MARK: - ThinkingBubble
+
+struct ThinkingBubble: View {
+    let status: AgentStatus
+    let elapsed: Int
+    var latestActivity: String? = nil
+
+    private var label: String {
+        switch status {
+        case .thinking: "Thinking"
+        case .working: "Working"
+        default: "Thinking"
+        }
+    }
+
+    private var labelColor: Color {
+        switch status {
+        case .working: .orange
+        default: .purple
+        }
+    }
+
+    private var stageHint: String? {
+        if elapsed < 3 { return "Starting up..." }
+        if elapsed < 15 && status == .thinking { return "Loading model..." }
+        if elapsed >= 15 && status == .thinking { return "Generating response..." }
+        return nil
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.title3)
+                .foregroundStyle(labelColor)
+                .frame(width: 28)
+                .symbolEffect(.pulse)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(label)
+                        .font(.caption.bold())
+                        .foregroundStyle(labelColor)
+
+                    BouncingDots(color: labelColor)
+
+                    if elapsed > 0 {
+                        Text("\(elapsed)s")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                // Show latest activity or stage hint
+                if let activity = latestActivity {
+                    Text(activity)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                } else if let hint = stageHint {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .padding(12)
+        .background(labelColor.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .animation(.easeInOut(duration: 0.3), value: latestActivity)
+        .animation(.easeInOut(duration: 0.3), value: stageHint)
+    }
+}
+
+struct BouncingDots: View {
+    let color: Color
+    @State private var animate = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3) { i in
+                Circle()
+                    .fill(color)
+                    .frame(width: 4, height: 4)
+                    .offset(y: animate ? -3 : 0)
+                    .animation(
+                        .easeInOut(duration: 0.4)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(i) * 0.15),
+                        value: animate
+                    )
+            }
+        }
+        .onAppear { animate = true }
     }
 }
 

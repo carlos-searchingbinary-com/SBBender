@@ -131,17 +131,18 @@ struct AgentTests {
         }
     }
 
-    @Test("Agent cancellation")
-    func testCancellation() async throws {
+    @Test("Agent cancellation before run no longer sticks")
+    func testCancellationBeforeRunResets() async throws {
         let provider = MockProvider(responses: ["done"])
         let agent = Agent(
             configuration: AgentConfiguration(name: "CancelAgent"),
             model: provider
         )
 
+        // Cancelling before run() should not persist — run() resets isCancelled
         await agent.cancel()
         let result = try await agent.run("test")
-        #expect(result.status == .cancelled)
+        #expect(result.status == .completed)
     }
 
     @Test("Agent reset clears history")
@@ -157,6 +158,20 @@ struct AgentTests {
         // After reset, the agent should have no history
         let result = try await agent.run("Second")
         #expect(result.status == .completed)
+    }
+
+    @Test("Agent can run again after cancellation without reset")
+    func testRunAfterCancellation() async throws {
+        let provider = MockProvider(responses: ["I'm back!"])
+        let agent = Agent(
+            configuration: AgentConfiguration(name: "CancelRecoverAgent"),
+            model: provider
+        )
+
+        await agent.cancel()
+        let result = try await agent.run("Hello")
+        #expect(result.status == .completed)
+        #expect(result.content == "I'm back!")
     }
 
     @Test("Agent system prompt construction")

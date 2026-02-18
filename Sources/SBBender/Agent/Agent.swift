@@ -77,10 +77,20 @@ public actor Agent {
 
     /// Run the agent with a multimodal input.
     public func run(messages userMessages: [Message]) async throws -> RunResult {
+        try await run(messages: userMessages, eventHandler: nil)
+    }
+
+    /// Internal run with optional event handler for streaming.
+    private func run(
+        messages userMessages: [Message],
+        eventHandler: ((RunEvent) -> Void)?
+    ) async throws -> RunResult {
+        isCancelled = false
         let runID = UUID().uuidString
         let start = CFAbsoluteTimeGetCurrent()
 
         Log.agent.info("Run started: \(runID) on agent \(self.configuration.name)")
+        eventHandler?(.started(runID: runID))
 
         // 1. Restore session if storage is available
         if let storage {
@@ -141,6 +151,7 @@ public actor Agent {
         while iterations < configuration.maxIterations {
             guard !isCancelled else {
                 result.status = .cancelled
+                eventHandler?(.cancelled)
                 break
             }
 
@@ -148,11 +159,53 @@ public actor Agent {
             Log.agent.debug("Iteration \(iterations)/\(self.configuration.maxIterations)")
 
             // Call the model
-            let response = try await model.generate(
-                messages: runMessages,
-                config: configuration.generationConfig,
-                tools: toolDefs
-            )
+            eventHandler?(.modelRequestStarted)
+
+            let response: ModelResponse
+
+            if eventHandler != nil {
+                // Streaming path: emit tokens as they arrive so the UI can show progress
+                var accumulatedText = ""
+                var accumulatedToolCalls: [ToolCall] = []
+                var finalMetrics = ModelMetrics()
+
+                let stream = model.generateStream(
+                    messages: runMessages,
+                    config: configuration.generationConfig,
+                    tools: toolDefs
+                )
+                for try await delta in stream {
+                    switch delta {
+                    case .text(let fragment):
+                        accumulatedText += fragment
+                        eventHandler?(.contentDelta(fragment))
+                    case .toolCall(let tc):
+                        accumulatedToolCalls.append(tc)
+                    case .done(let metrics):
+                        finalMetrics = metrics
+                    }
+                }
+
+                let message = Message(
+                    role: .assistant,
+                    content: [.text(accumulatedText)],
+                    toolCalls: accumulatedToolCalls.isEmpty ? nil : accumulatedToolCalls
+                )
+                response = ModelResponse(
+                    message: message,
+                    metrics: finalMetrics,
+                    finishReason: accumulatedToolCalls.isEmpty ? .stop : .toolCall
+                )
+            } else {
+                // Non-streaming path: blocking generate for programmatic callers
+                response = try await model.generate(
+                    messages: runMessages,
+                    config: configuration.generationConfig,
+                    tools: toolDefs
+                )
+            }
+
+            eventHandler?(.modelRequestCompleted(response.metrics))
 
             result.metrics.accumulate(response.metrics)
 
@@ -187,6 +240,7 @@ public actor Agent {
                 guard let tool = toolRegistry.get(tc.name) else {
                     let errMsg = "Tool '\(tc.name)' not found"
                     Log.tool.error("\(errMsg)")
+                    eventHandler?(.toolCallError(name: tc.name, error: errMsg))
                     let toolResult = Message.tool(id: tc.id, result: "Error: \(errMsg)", name: tc.name)
                     runMessages.append(toolResult)
                     chatHistory.append(toolResult)
@@ -197,6 +251,7 @@ public actor Agent {
                     continue
                 }
 
+                eventHandler?(.toolCallStarted(name: tc.name, id: tc.id))
                 let toolStart = CFAbsoluteTimeGetCurrent()
 
                 do {
@@ -226,6 +281,8 @@ public actor Agent {
                         toolOutput = rawToolOutput
                     }
 
+                    eventHandler?(.toolCallCompleted(name: tc.name, result: rawToolOutput))
+
                     let toolResult = Message.tool(id: tc.id, result: toolOutput, name: tc.name)
                     runMessages.append(toolResult)
                     chatHistory.append(toolResult)
@@ -244,6 +301,8 @@ public actor Agent {
                     let toolLatency = CFAbsoluteTimeGetCurrent() - toolStart
                     let errMsg = error.localizedDescription
                     Log.tool.error("Tool \(tc.name) failed: \(errMsg)")
+
+                    eventHandler?(.toolCallError(name: tc.name, error: errMsg))
 
                     let toolResult = Message.tool(id: tc.id, result: "Error: \(errMsg)", name: tc.name)
                     runMessages.append(toolResult)
@@ -297,14 +356,17 @@ public actor Agent {
         return result
     }
 
-    /// Stream the agent's response token by token.
+    /// Stream the agent's response with real-time events for tool calls, model requests, and content.
     public func runStream(_ input: String) -> AsyncThrowingStream<RunEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let result = try await self.run(input)
-                    continuation.yield(.started(runID: result.runID))
-                    continuation.yield(.contentDelta(result.content))
+                    let result = try await self.run(
+                        messages: [.user(input)],
+                        eventHandler: { event in
+                            continuation.yield(event)
+                        }
+                    )
                     continuation.yield(.completed(result))
                     continuation.finish()
                 } catch {

@@ -193,6 +193,8 @@ final class AppState {
         } else {
             agents.insert(config, at: 0)
         }
+        // Reset cached agent so it picks up new skills/tools/config on next use
+        resetLiveAgent(for: config.id)
         Task { try? await persistence?.saveAgent(config) }
     }
 
@@ -240,9 +242,12 @@ final class AppState {
 
     func deleteToolConfig(_ config: ToolConfig) {
         toolConfigs.removeAll { $0.id == config.id }
-        // Remove from any agent that references it
+        // Remove from any agent that references it and reset their cached instances
         for i in agents.indices {
-            agents[i].customToolIDs.removeAll { $0 == config.id }
+            if agents[i].customToolIDs.contains(config.id) {
+                agents[i].customToolIDs.removeAll { $0 == config.id }
+                resetLiveAgent(for: agents[i].id)
+            }
         }
         Task { try? await persistence?.deleteToolConfig(id: config.id) }
     }
@@ -266,9 +271,12 @@ final class AppState {
 
     func deleteMCPServerConfig(_ config: MCPServerConfig) {
         mcpServerConfigs.removeAll { $0.id == config.id }
-        // Remove from any agent that references it
+        // Remove from any agent that references it and reset their cached instances
         for i in agents.indices {
-            agents[i].mcpServerIDs.removeAll { $0 == config.id }
+            if agents[i].mcpServerIDs.contains(config.id) {
+                agents[i].mcpServerIDs.removeAll { $0 == config.id }
+                resetLiveAgent(for: agents[i].id)
+            }
         }
         Task { try? await persistence?.deleteMCPServerConfig(id: config.id) }
     }

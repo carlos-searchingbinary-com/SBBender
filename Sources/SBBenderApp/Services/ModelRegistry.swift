@@ -37,30 +37,73 @@ final class ModelRegistry {
 
     // MARK: - MLX (Local HuggingFace Cache)
 
-    /// Scan ~/.cache/huggingface/hub/ for downloaded MLX-compatible models
+    /// Scan ~/.cache/huggingface/hub/ for downloaded MLX-compatible models.
+    /// Shows all local models that have actual model snapshots downloaded.
     func loadMLXLocal() {
-        let cacheDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub")
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cachePath = "\(home)/.cache/huggingface/hub"
+        let fm = FileManager.default
 
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: cacheDir, includingPropertiesForKeys: nil
-        ) else {
-            mlxLocalModels = []
+        guard let entries = try? fm.contentsOfDirectory(atPath: cachePath) else {
+            // Fallback: try with URL API
+            let cacheURL = URL(fileURLWithPath: cachePath)
+            guard let urlEntries = try? fm.contentsOfDirectory(
+                at: cacheURL, includingPropertiesForKeys: nil
+            ) else {
+                mlxLocalModels = []
+                return
+            }
+            mlxLocalModels = urlEntries.compactMap { url -> String? in
+                let name = url.lastPathComponent
+                guard name.hasPrefix("models--") else { return nil }
+                return String(name.dropFirst("models--".count)).replacingOccurrences(of: "--", with: "/")
+            }
+            .filter { isLikelyLLM($0, cachePath: cachePath) }
+            .sorted { mlxSortKey($0) < mlxSortKey($1) }
             return
         }
 
         // Directories named "models--org--name" → "org/name"
-        mlxLocalModels = entries.compactMap { url -> String? in
-            let name = url.lastPathComponent
+        mlxLocalModels = entries.compactMap { name -> String? in
             guard name.hasPrefix("models--") else { return nil }
-            let parts = name.dropFirst("models--".count).replacingOccurrences(of: "--", with: "/")
-            return parts
+            return String(name.dropFirst("models--".count)).replacingOccurrences(of: "--", with: "/")
         }
-        .filter { id in
-            // Only show MLX models (from mlx-community or containing "mlx" in path)
-            id.lowercased().contains("mlx")
+        .filter { isLikelyLLM($0, cachePath: cachePath) }
+        .sorted { mlxSortKey($0) < mlxSortKey($1) }
+    }
+
+    /// Check if a cached model looks like an LLM (has config.json in its snapshot).
+    /// Excludes embedding models, CLIP, OCR, etc.
+    private func isLikelyLLM(_ modelID: String, cachePath: String) -> Bool {
+        let lower = modelID.lowercased()
+
+        // Always include mlx-community models
+        if lower.hasPrefix("mlx-community/") { return true }
+
+        // Exclude known non-LLM model families
+        let excludePrefixes = [
+            "sentence-transformers/", "openai/clip", "laion/", "timm/",
+            "paddlepaddle/", "unitary/", "wespeaker/", "cardiffnlp/",
+            "ds4sd/", "idea-research/", "facebook/sam"
+        ]
+        for prefix in excludePrefixes {
+            if lower.hasPrefix(prefix) { return false }
         }
-        .sorted()
+
+        // Check if the model has a snapshot with config.json (indicates a real model download)
+        let dirName = "models--" + modelID.replacingOccurrences(of: "/", with: "--")
+        let snapshotsPath = "\(cachePath)/\(dirName)/snapshots"
+        guard let snapshots = try? FileManager.default.contentsOfDirectory(atPath: snapshotsPath),
+              let firstSnapshot = snapshots.first(where: { !$0.hasPrefix(".") }) else {
+            return false
+        }
+        let configPath = "\(snapshotsPath)/\(firstSnapshot)/config.json"
+        return FileManager.default.fileExists(atPath: configPath)
+    }
+
+    /// Sort key: mlx-community models first, then alphabetical
+    private func mlxSortKey(_ id: String) -> String {
+        id.lowercased().hasPrefix("mlx-community/") ? "0_\(id)" : "1_\(id)"
     }
 
     /// Search HuggingFace Hub for MLX models

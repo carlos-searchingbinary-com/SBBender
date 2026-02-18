@@ -259,6 +259,20 @@ struct DataAnalysisSkillTests {
         }
     }
 
+    @Test("Real xlsx file loading from Downloads")
+    func testRealXlsx() async throws {
+        let path = "/Users/cmartins-rlabs/Downloads/NWC_Data_Size.xlsx"
+        guard FileManager.default.fileExists(atPath: path) else { return }
+
+        let skill = DataAnalysisSkill()
+        let result = try await skill.execute(input: NativeToolInput(
+            text: "load",
+            parameters: ["filePath": path, "tableName": "nwc_data"]
+        ))
+        print("XLSX LOAD RESULT:\n\(result.output)")
+        #expect(result.output.contains("nwc_data"))
+    }
+
     // MARK: - asTool
 
     @Test("asTool returns valid Tool")

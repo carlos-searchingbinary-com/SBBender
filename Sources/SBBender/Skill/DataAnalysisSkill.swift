@@ -158,12 +158,7 @@ public final class DataAnalysisSkill: @unchecked Sendable, NativeTool {
         case "csv", "tsv":
             readFn = "read_csv('\(escapePath(filePath))')"
         case "xlsx", "xls":
-            guard isExcelExtensionLoaded else {
-                throw SBBenderError.skillExecutionFailed(
-                    skill: name,
-                    reason: "Excel support requires the DuckDB excel extension, which could not be loaded. Try converting the file to CSV first."
-                )
-            }
+            // Try DuckDB native read_xlsx first, then spatial st_read as fallback
             readFn = "read_xlsx('\(escapePath(filePath))')"
         case "json", "jsonl":
             readFn = "read_json('\(escapePath(filePath))')"
@@ -175,7 +170,27 @@ public final class DataAnalysisSkill: @unchecked Sendable, NativeTool {
 
         // Drop existing table if re-loading
         try conn.execute("DROP TABLE IF EXISTS \"\(table)\"")
-        try conn.execute("CREATE TABLE \"\(table)\" AS SELECT * FROM \(readFn)")
+        do {
+            try conn.execute("CREATE TABLE \"\(table)\" AS SELECT * FROM \(readFn)")
+        } catch let primaryError {
+            // For Excel files: try spatial extension's st_read as fallback
+            if ext == "xlsx" || ext == "xls" {
+                Log.tool.info("read_xlsx failed (\(primaryError)), trying spatial st_read...")
+                do {
+                    try conn.execute("INSTALL spatial; LOAD spatial;")
+                    try conn.execute("DROP TABLE IF EXISTS \"\(table)\"")
+                    try conn.execute("CREATE TABLE \"\(table)\" AS SELECT * FROM st_read('\(escapePath(filePath))')")
+                } catch {
+                    // Both methods failed — give a clear error
+                    throw SBBenderError.skillExecutionFailed(
+                        skill: name,
+                        reason: "Could not read Excel file. DuckDB read_xlsx error: \(primaryError.localizedDescription). st_read error: \(error.localizedDescription). Try converting the file to CSV first."
+                    )
+                }
+            } else {
+                throw primaryError
+            }
+        }
 
         state.withLock { $0.loadedTables.insert(table) }
 
@@ -287,13 +302,19 @@ public final class DataAnalysisSkill: @unchecked Sendable, NativeTool {
             }
             let db = try Database(store: .inMemory)
             let conn = try db.connect()
-            // Try to install and load the Excel extension for xlsx support.
-            // This may fail if offline or extension is unavailable — xlsx won't work but everything else will.
+            // Try to install Excel-related extensions for xlsx support.
+            // Try both 'excel' (newer) and 'spatial' (has st_read for xlsx).
             do {
                 try conn.execute("INSTALL excel; LOAD excel;")
                 state.excelExtensionLoaded = true
             } catch {
-                state.excelExtensionLoaded = false
+                // excel extension not available — try spatial as fallback for st_read
+                do {
+                    try conn.execute("INSTALL spatial; LOAD spatial;")
+                    state.excelExtensionLoaded = true // spatial provides st_read for xlsx
+                } catch {
+                    state.excelExtensionLoaded = false
+                }
             }
             state.database = db
             state.connection = conn

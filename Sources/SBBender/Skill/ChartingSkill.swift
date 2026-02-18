@@ -51,7 +51,8 @@ public final class ChartingSkill: @unchecked Sendable, NativeTool {
         return Tool(
             name: name,
             description: description,
-            parameters: toolParameters
+            parameters: toolParameters,
+            stopAfterCall: true
         ) { arguments, _ in
             let args = try JSONDecoder().decode(DecodedArgs.self, from: Data(arguments.utf8))
             var params: [String: String] = [:]

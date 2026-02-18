@@ -7,8 +7,10 @@ import MLXRandom
 
 /// Local LLM inference via MLX Swift on Apple Silicon.
 ///
-/// This is the primary provider for SBBender. It runs Qwen3, Llama, and other
-/// models entirely on-device using the GPU.
+/// Uses mlx-swift-lm's native chat template and tool calling system:
+/// - `UserInput(chat:tools:)` for proper multi-turn with tool results
+/// - `ModelContainer.generate()` async stream with native `Generation.toolCall` detection
+/// - Auto-detected tool call format based on model type (Qwen3, Llama, GLM4, etc.)
 ///
 /// Uses `@unchecked Sendable` because `ModelContainer` manages its own
 /// thread safety internally.
@@ -18,7 +20,6 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     public let modelID: String
 
     private let gpuCacheLimit: Int
-    private let toolCallFormat: any ToolCallFormat
     private let state = OSAllocatedUnfairLock(initialState: MLXState())
 
     struct MLXState: Sendable {
@@ -29,11 +30,10 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     public init(
         modelID: String = "mlx-community/Qwen3-4B-4bit",
         gpuCacheLimit: Int = 20 * 1024 * 1024,
-        toolCallFormat: any ToolCallFormat = Qwen3ToolFormat()
+        toolCallFormat: (any ToolCallFormat)? = nil // Ignored — native detection used
     ) {
         self.modelID = modelID
         self.gpuCacheLimit = gpuCacheLimit
-        self.toolCallFormat = toolCallFormat
     }
 
     public var isAvailable: Bool {
@@ -97,6 +97,8 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
         return result
     }
 
+    // MARK: - Generate (non-streaming)
+
     public func generate(
         messages: [Message],
         config: GenerationConfig,
@@ -105,78 +107,81 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
         let container = try await loadModel()
         let start = CFAbsoluteTimeGetCurrent()
 
-        let promptString = buildPrompt(from: messages, tools: tools)
-        let maxTokens = config.maxTokens
-        let enableThinking = config.enableThinking
+        let chatMessages = messages.map { Self.toChatMessage($0) }
+        let toolSchemas: [[String: any Sendable]]? = tools.isEmpty ? nil : tools.map { Self.toToolSchema($0) }
 
-        let userInput: UserInput = {
-            var input = UserInput(prompt: promptString)
-            input.processing.resize = .none
-            if !enableThinking {
-                input.additionalContext = ["enable_thinking": false]
-            }
-            return input
-        }()
-
-        let lmInput = try await container.perform { ctx in
-            try await ctx.processor.prepare(input: userInput)
+        var userInput = UserInput(chat: chatMessages, tools: toolSchemas)
+        userInput.processing.resize = .none
+        if !config.enableThinking {
+            userInput.additionalContext = ["enable_thinking": false]
         }
 
+        let lmInput = try await container.prepare(input: userInput)
+
         let generateConfig = GenerateParameters(
+            maxTokens: config.maxTokens,
             temperature: config.temperature,
             topP: config.topP,
             repetitionPenalty: config.repetitionPenalty
         )
 
-        let generationResult = try await container.perform { ctx in
-            try MLXLMCommon.generate(
-                input: lmInput,
-                parameters: generateConfig,
-                context: ctx
-            ) { tokens in
-                tokens.count >= maxTokens ? .stop : .more
+        let stream = try await container.generate(
+            input: lmInput,
+            parameters: generateConfig
+        )
+
+        var text = ""
+        var nativeToolCalls: [MLXLMCommon.ToolCall] = []
+        var completionInfo: GenerateCompletionInfo?
+
+        for try await generation in stream {
+            if let chunk = generation.chunk {
+                text += chunk
+            }
+            if let tc = generation.toolCall {
+                nativeToolCalls.append(tc)
+            }
+            if let info = generation.info {
+                completionInfo = info
             }
         }
 
-        var output = generationResult.output
-        if !enableThinking {
-            output = Self.stripThinkingTags(output)
+        // Strip thinking tags if thinking is disabled
+        if !config.enableThinking {
+            text = Self.stripThinkingTags(text)
         }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - start
-        let tokenCount = output.split(separator: " ").count
-        let metrics = ModelMetrics(
-            outputTokens: tokenCount,
-            totalTokens: tokenCount,
-            latency: elapsed,
-            tokensPerSecond: elapsed > 0 ? Double(tokenCount) / elapsed : 0
-        )
+        let metrics = Self.buildMetrics(from: completionInfo, elapsed: elapsed, fallbackText: text)
 
-        // Parse tool calls from output using the configured format
-        let (parsedToolCalls, remainingText) = toolCallFormat.parseToolCalls(output)
+        // Convert native tool calls to SBBender tool calls
+        if !nativeToolCalls.isEmpty {
+            let sbToolCalls = nativeToolCalls.map { Self.toSBBenderToolCall($0) }
+            Log.tool.info("MLX native tool calls detected: \(sbToolCalls.map(\.name))")
 
-        if !parsedToolCalls.isEmpty {
-            let content: [Content] = remainingText.isEmpty ? [] : [.text(remainingText)]
+            let content: [Content] = text.isEmpty ? [] : [.text(text)]
             let message = Message(
                 role: .assistant,
                 content: content,
-                toolCalls: parsedToolCalls
+                toolCalls: sbToolCalls
             )
             return ModelResponse(
                 message: message,
                 metrics: metrics,
                 finishReason: .toolCall,
-                rawOutput: output
+                rawOutput: text
             )
         }
 
         return ModelResponse(
-            message: .assistant(output),
+            message: .assistant(text),
             metrics: metrics,
             finishReason: .stop,
-            rawOutput: output
+            rawOutput: text
         )
     }
+
+    // MARK: - Generate (streaming)
 
     public func generateStream(
         messages: [Message],
@@ -189,70 +194,47 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
                     let container = try await self.loadModel()
                     let start = CFAbsoluteTimeGetCurrent()
 
-                    let promptString = self.buildPrompt(from: messages, tools: tools)
-                    let maxTokens = config.maxTokens
-                    let enableThinking = config.enableThinking
-                    let format = self.toolCallFormat
-                    let hasTools = !tools.isEmpty
+                    let chatMessages = messages.map { Self.toChatMessage($0) }
+                    let toolSchemas: [[String: any Sendable]]? = tools.isEmpty ? nil : tools.map { Self.toToolSchema($0) }
 
-                    let userInput: UserInput = {
-                        var input = UserInput(prompt: promptString)
-                        input.processing.resize = .none
-                        if !enableThinking {
-                            input.additionalContext = ["enable_thinking": false]
-                        }
-                        return input
-                    }()
-
-                    let lmInput = try await container.perform { ctx in
-                        try await ctx.processor.prepare(input: userInput)
+                    var userInput = UserInput(chat: chatMessages, tools: toolSchemas)
+                    userInput.processing.resize = .none
+                    if !config.enableThinking {
+                        userInput.additionalContext = ["enable_thinking": false]
                     }
 
+                    let lmInput = try await container.prepare(input: userInput)
+
                     let generateConfig = GenerateParameters(
+                        maxTokens: config.maxTokens,
                         temperature: config.temperature,
                         topP: config.topP,
                         repetitionPenalty: config.repetitionPenalty
                     )
 
-                    let generationResult = try await container.perform { ctx in
-                        try MLXLMCommon.generate(
-                            input: lmInput,
-                            parameters: generateConfig,
-                            context: ctx
-                        ) { tokens in
-                            if let last = tokens.last {
-                                let text = ctx.tokenizer.decode(tokens: [last])
-                                if !text.isEmpty {
-                                    continuation.yield(.text(text))
-                                }
-                            }
-                            return tokens.count >= maxTokens ? .stop : .more
+                    let stream = try await container.generate(
+                        input: lmInput,
+                        parameters: generateConfig
+                    )
+
+                    var completionInfo: GenerateCompletionInfo?
+
+                    for try await generation in stream {
+                        if let chunk = generation.chunk {
+                            continuation.yield(.text(chunk))
                         }
-                    }
-
-                    let fullOutput = generationResult.output
-
-                    // After generation completes, check for tool calls if tools were provided
-                    if hasTools {
-                        var processedOutput = fullOutput
-                        if !enableThinking {
-                            processedOutput = Self.stripThinkingTags(processedOutput)
+                        if let tc = generation.toolCall {
+                            let sbToolCall = Self.toSBBenderToolCall(tc)
+                            Log.tool.info("MLX stream tool call: \(sbToolCall.name)")
+                            continuation.yield(.toolCall(sbToolCall))
                         }
-
-                        let (parsedToolCalls, _) = format.parseToolCalls(processedOutput)
-                        for tc in parsedToolCalls {
-                            continuation.yield(.toolCall(tc))
+                        if let info = generation.info {
+                            completionInfo = info
                         }
                     }
 
                     let elapsed = CFAbsoluteTimeGetCurrent() - start
-                    let tokenCount = fullOutput.split(separator: " ").count
-                    let metrics = ModelMetrics(
-                        outputTokens: tokenCount,
-                        totalTokens: tokenCount,
-                        latency: elapsed,
-                        tokensPerSecond: elapsed > 0 ? Double(tokenCount) / elapsed : 0
-                    )
+                    let metrics = Self.buildMetrics(from: completionInfo, elapsed: elapsed, fallbackText: "")
                     continuation.yield(.done(metrics))
                     continuation.finish()
                 } catch {
@@ -262,48 +244,146 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
         }
     }
 
-    // MARK: - Prompt Building
+    // MARK: - Type Conversions
 
-    /// Build a ChatML prompt string from messages, optionally including tool definitions.
-    func buildPrompt(from messages: [Message], tools: [ToolDefinition] = []) -> String {
-        let format = toolCallFormat
-        return messages.map { msg in
-            switch msg.role {
-            case .system:
-                let systemText: String
-                if tools.isEmpty {
-                    systemText = msg.text
-                } else {
-                    systemText = msg.text + "\n\n" + format.formatToolPrompt(tools: tools)
+    /// Convert SBBender Message → mlx-swift-lm Chat.Message
+    static func toChatMessage(_ message: Message) -> Chat.Message {
+        switch message.role {
+        case .system:
+            return .system(message.text)
+        case .user:
+            return .user(message.text)
+        case .assistant:
+            // Include tool call info in assistant text if present
+            if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
+                var parts: [String] = []
+                let text = message.text
+                if !text.isEmpty {
+                    parts.append(text)
                 }
-                return "<|im_start|>system\n\(systemText)<|im_end|>"
-            case .user:
-                return "<|im_start|>user\n\(msg.text)<|im_end|>"
-            case .assistant:
-                if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
-                    var parts: [String] = []
-                    let text = msg.text
-                    if !text.isEmpty {
-                        parts.append(text)
-                    }
-                    for tc in toolCalls {
-                        parts.append("<tool_call>\n{\"name\": \"\(tc.name)\", \"arguments\": \(tc.arguments)}\n</tool_call>")
-                    }
-                    return "<|im_start|>assistant\n\(parts.joined(separator: "\n"))<|im_end|>"
+                // The model's chat template will format these properly
+                for tc in toolCalls {
+                    parts.append("<tool_call>\n{\"name\": \"\(tc.name)\", \"arguments\": \(tc.arguments)}\n</tool_call>")
                 }
-                return "<|im_start|>assistant\n\(msg.text)<|im_end|>"
-            case .tool:
-                guard let toolName = msg.name else {
-                    Log.model.error("Tool message missing name field, using 'unknown'")
-                    return "<|im_start|>user\n\(format.formatToolResult(name: "unknown", result: msg.text))<|im_end|>"
-                }
-                let result = msg.text
-                return "<|im_start|>user\n\(format.formatToolResult(name: toolName, result: result))<|im_end|>"
+                return .assistant(parts.joined(separator: "\n"))
             }
-        }.joined(separator: "\n") + "\n<|im_start|>assistant\n"
+            return .assistant(message.text)
+        case .tool:
+            let toolName = message.name ?? "unknown"
+            let result = message.text
+            // Format as JSON tool response for the model
+            let escaped = escapeJSONString(result)
+            return .tool("{\"name\": \"\(toolName)\", \"content\": \(escaped)}")
+        }
     }
 
-    // MARK: - Static Helpers (backward compatibility)
+    /// Convert SBBender ToolDefinition → mlx-swift-lm tool schema
+    static func toToolSchema(_ def: ToolDefinition) -> [String: any Sendable] {
+        let funcDict: [String: any Sendable] = [
+            "name": def.name,
+            "description": def.description,
+            "parameters": toSendableDict(def.parameters),
+        ]
+        return [
+            "type": "function" as any Sendable,
+            "function": funcDict as any Sendable,
+        ]
+    }
+
+    /// Convert mlx-swift-lm ToolCall → SBBender ToolCall
+    static func toSBBenderToolCall(_ tc: MLXLMCommon.ToolCall) -> SBBender.ToolCall {
+        // Convert JSONValue arguments to JSON string
+        let argsDict = tc.function.arguments.mapValues { $0.anyValue }
+        let argsString: String
+        if let data = try? JSONSerialization.data(withJSONObject: argsDict, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            argsString = json
+        } else {
+            argsString = "{}"
+        }
+        return SBBender.ToolCall(name: tc.function.name, arguments: argsString)
+    }
+
+    /// Recursively convert [String: Any] to [String: any Sendable] for tool schemas.
+    private static func toSendableDict(_ dict: [String: Any]) -> [String: any Sendable] {
+        var result: [String: any Sendable] = [:]
+        for (key, value) in dict {
+            switch value {
+            case let s as String:
+                result[key] = s
+            case let i as Int:
+                result[key] = i
+            case let d as Double:
+                result[key] = d
+            case let b as Bool:
+                result[key] = b
+            case let arr as [Any]:
+                result[key] = toSendableArray(arr)
+            case let nested as [String: Any]:
+                result[key] = toSendableDict(nested)
+            default:
+                result[key] = "\(value)"
+            }
+        }
+        return result
+    }
+
+    private static func toSendableArray(_ arr: [Any]) -> [any Sendable] {
+        arr.map { value in
+            switch value {
+            case let s as String: return s as any Sendable
+            case let i as Int: return i as any Sendable
+            case let d as Double: return d as any Sendable
+            case let b as Bool: return b as any Sendable
+            case let nested as [String: Any]: return toSendableDict(nested) as any Sendable
+            case let nestedArr as [Any]: return toSendableArray(nestedArr) as any Sendable
+            default: return "\(value)" as any Sendable
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private static func buildMetrics(
+        from info: GenerateCompletionInfo?,
+        elapsed: TimeInterval,
+        fallbackText: String
+    ) -> ModelMetrics {
+        if let info {
+            return ModelMetrics(
+                inputTokens: info.promptTokenCount,
+                outputTokens: info.generationTokenCount,
+                totalTokens: info.promptTokenCount + info.generationTokenCount,
+                latency: elapsed,
+                tokensPerSecond: info.tokensPerSecond
+            )
+        }
+        // Fallback: estimate from text
+        let tokenCount = fallbackText.split(separator: " ").count
+        return ModelMetrics(
+            outputTokens: tokenCount,
+            totalTokens: tokenCount,
+            latency: elapsed,
+            tokensPerSecond: elapsed > 0 ? Double(tokenCount) / elapsed : 0
+        )
+    }
+
+    private static func escapeJSONString(_ string: String) -> String {
+        if let data = try? JSONSerialization.data(withJSONObject: [string], options: []),
+           let jsonArray = String(data: data, encoding: .utf8) {
+            let trimmed = jsonArray.dropFirst(1).dropLast(1)
+            return String(trimmed)
+        }
+        let escaped = string
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        return "\"\(escaped)\""
+    }
+
+    // MARK: - Static Helpers (backward compatibility for tests)
 
     /// Build a ChatML prompt string from messages. Delegates to Qwen3ToolFormat.
     static func buildPrompt(from messages: [Message], tools: [ToolDefinition] = []) -> String {
@@ -350,7 +430,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     }
 
     /// Parse `<tool_call>` blocks from model output. Delegates to Qwen3ToolFormat.
-    static func parseToolCalls(_ text: String) -> ([ToolCall], String) {
+    static func parseToolCalls(_ text: String) -> ([SBBender.ToolCall], String) {
         Qwen3ToolFormat().parseToolCalls(text)
     }
 
@@ -366,17 +446,6 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
 
     /// Escape a string for JSON embedding.
     static func escapeJSON(_ string: String) -> String {
-        if let data = try? JSONSerialization.data(withJSONObject: [string], options: []),
-           let jsonArray = String(data: data, encoding: .utf8) {
-            let trimmed = jsonArray.dropFirst(1).dropLast(1)
-            return String(trimmed)
-        }
-        let escaped = string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        return "\"\(escaped)\""
+        escapeJSONString(string)
     }
 }

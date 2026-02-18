@@ -13,10 +13,12 @@ final class AgentChatViewModel {
     var metrics: RunMetrics?
     var toolOutputEntries: [ToolOutputEntry] = []
     var activityEvents: [ActivityEvent] = []
+    var elapsedSeconds: Int = 0
 
     private var streamTask: Task<Void, Never>?
+    private var elapsedTimer: Task<Void, Never>?
 
-    func sendMessage(agent: Agent, agentName: String) async {
+    func sendMessage(agent: Agent, agentName: String, providerType: String? = nil, modelID: String? = nil) async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isGenerating else { return }
 
@@ -24,7 +26,24 @@ final class AgentChatViewModel {
         messages.append(ChatMessage(role: "user", content: text))
         isGenerating = true
         status = .thinking
+        elapsedSeconds = 0
+
+        if let provider = providerType, let model = modelID {
+            activityEvents.append(ActivityEvent(
+                kind: .modelRequest(provider: provider, model: model),
+                agentName: agentName
+            ))
+        }
         activityEvents.append(ActivityEvent(kind: .thinking, agentName: agentName))
+
+        // Start elapsed timer
+        elapsedTimer = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                self.elapsedSeconds += 1
+            }
+        }
 
         let task = Task {
             do {
@@ -76,22 +95,34 @@ final class AgentChatViewModel {
                     case .modelRequestCompleted:
                         break
                     case .completed(let result):
+                        toolOutputEntries = await agent.toolOutputStore.allEntries
+
+                        // Inject chart specs from tool outputs into content
+                        var finalContent = result.content
+                        for entry in toolOutputEntries {
+                            if entry.fullOutput.contains("\"__chart__\""),
+                               !finalContent.contains("\"__chart__\"") {
+                                finalContent += "\n" + entry.fullOutput
+                            }
+                        }
+
+                        let toolCalls = result.messages.compactMap(\.toolCalls).flatMap { $0 }
+
                         // Replace streaming message with final
                         if let idx = messages.lastIndex(where: { $0.role == "assistant-streaming" }) {
                             messages[idx] = ChatMessage(
                                 role: "assistant",
-                                content: result.content,
-                                toolCalls: result.messages.compactMap(\.toolCalls).flatMap { $0 }
+                                content: finalContent,
+                                toolCalls: toolCalls
                             )
-                        } else if !result.content.isEmpty {
+                        } else if !finalContent.isEmpty {
                             messages.append(ChatMessage(
                                 role: "assistant",
-                                content: result.content,
-                                toolCalls: result.messages.compactMap(\.toolCalls).flatMap { $0 }
+                                content: finalContent,
+                                toolCalls: toolCalls
                             ))
                         }
                         metrics = result.metrics
-                        toolOutputEntries = await agent.toolOutputStore.allEntries
                         let latency = result.metrics.totalLatency
                         let tools = result.metrics.toolCalls
                         activityEvents.append(ActivityEvent(
@@ -123,13 +154,16 @@ final class AgentChatViewModel {
                 }
             }
             isGenerating = false
+            elapsedTimer?.cancel()
         }
         self.streamTask = task
     }
 
     func cancel() {
         streamTask?.cancel()
+        elapsedTimer?.cancel()
         isGenerating = false
+        elapsedSeconds = 0
         status = .idle
     }
 

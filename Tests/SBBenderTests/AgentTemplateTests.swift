@@ -407,6 +407,149 @@ struct AgentTemplateE2ETests {
         }
     }
 
+    @Test("Data Analyst agent: load xlsx and summarize (matches app bundle config)")
+    func testDataAnalystAgentXlsx() async throws {
+        let xlsxPath = "/Users/cmartins-rlabs/Downloads/NWC_Data_Size.xlsx"
+        guard FileManager.default.fileExists(atPath: xlsxPath) else { return }
+
+        // Matches the "data-analysis" bundle from registry/bundles.json exactly:
+        // nativeTools: ["data-analysis", "charting", "shell", "web-fetch", "entity-extraction"]
+        // Using Qwen3-4B (user's local model) instead of bundle's 14B
+        let agent = Agent(
+            configuration: AgentConfiguration(
+                name: "Data Analyst",
+                instructions: """
+                You are a data analyst. Analyze CSV, Excel, JSON, and Parquet files \
+                with SQL queries powered by DuckDB. Use the analyzeData tool to load files \
+                and run SQL queries. When asked to analyze a file: first load it with \
+                action 'load', then query with action 'query' using SQL. \
+                Always use the tool — never guess at data.
+                """,
+                generationConfig: GenerationConfig(maxTokens: 512, temperature: 0.2, enableThinking: false),
+                maxIterations: 6,
+                addDateToSystemPrompt: true,
+                markdown: true
+            ),
+            model: Self.mlx,
+            nativeTools: [
+                DataAnalysisSkill(),
+                ChartingSkill(),
+                ShellSkill(allowedCommands: ["ls", "cat", "echo", "wc", "head", "tail"]),
+                WebFetchSkill(),
+                EntityExtractionSkill(),
+            ]
+        )
+
+        let result = try await agent.run(
+            "Give me a summary of \(xlsxPath)"
+        )
+
+        // ── EVIDENCE: dump everything ──
+        print("\n" + String(repeating: "=", count: 80))
+        print("DATA ANALYST AGENT E2E RESULTS")
+        print(String(repeating: "=", count: 80))
+        print("Status: \(result.status)")
+        print("Total tool calls: \(result.toolExecutions.count)")
+        print("Tool names called: \(result.toolExecutions.map(\.toolName))")
+        for (i, exec) in result.toolExecutions.enumerated() {
+            print("\n--- Tool Call \(i + 1): \(exec.toolName) ---")
+            print("  Arguments: \(exec.arguments)")
+            print("  Succeeded: \(exec.succeeded)")
+            if let err = exec.error { print("  ERROR: \(err)") }
+            if let res = exec.result {
+                // Print first 500 chars of result
+                let preview = res.count > 500 ? String(res.prefix(500)) + "...[truncated]" : res
+                print("  Result:\n\(preview)")
+            }
+        }
+        print("\n--- Agent Final Response ---")
+        print(result.content.prefix(1000))
+        print(String(repeating: "=", count: 80) + "\n")
+
+        // ── ASSERTIONS ──
+        #expect(result.status == .completed)
+
+        // Agent MUST have called analyzeData at least once (load)
+        let dataExecs = result.toolExecutions.filter { $0.toolName == "analyzeData" }
+        #expect(!dataExecs.isEmpty, "Agent MUST use analyzeData tool, but used: \(result.toolExecutions.map(\.toolName))")
+
+        // The load MUST succeed and return real xlsx data
+        let loadExec = dataExecs.first!
+        #expect(loadExec.succeeded, "analyzeData load failed: \(loadExec.error ?? "unknown")")
+        #expect(loadExec.result?.contains("nwc_data") == true, "Load result must mention table name")
+        #expect(loadExec.result?.contains("row") == true, "Load result must mention rows")
+
+        // ALL tool calls must succeed (no DuckDB errors, no hallucinations)
+        for exec in result.toolExecutions {
+            #expect(exec.succeeded, "Tool \(exec.toolName) failed: \(exec.error ?? "unknown")")
+        }
+
+        // Agent must produce a substantive summary referencing actual data
+        #expect(result.content.count > 50, "Agent should produce a real summary, got \(result.content.count) chars")
+    }
+
+    @Test("Data Analyst agent: multi-turn load + query (agentic loop)")
+    func testDataAnalystMultiTurn() async throws {
+        let xlsxPath = "/Users/cmartins-rlabs/Downloads/NWC_Data_Size.xlsx"
+        guard FileManager.default.fileExists(atPath: xlsxPath) else { return }
+
+        let agent = Agent(
+            configuration: AgentConfiguration(
+                name: "Data Analyst",
+                instructions: """
+                You are a data analyst. Use the analyzeData tool to work with data files. \
+                WORKFLOW: 1) Load the file with action 'load'. 2) Query with action 'query' using SQL. \
+                Always load first, then query. Never guess at data — always query.
+                """,
+                generationConfig: GenerationConfig(maxTokens: 512, temperature: 0.1, enableThinking: false),
+                maxIterations: 6
+            ),
+            model: Self.mlx,
+            nativeTools: [DataAnalysisSkill()]
+        )
+
+        // Ask a question that REQUIRES both load + query
+        let result = try await agent.run(
+            "Load the file \(xlsxPath) and find the biggest table by size. Show the table name, database, and size."
+        )
+
+        // ── EVIDENCE ──
+        print("\n" + String(repeating: "=", count: 80))
+        print("MULTI-TURN AGENTIC LOOP TEST")
+        print(String(repeating: "=", count: 80))
+        print("Status: \(result.status)")
+        print("Total tool calls: \(result.toolExecutions.count)")
+        for (i, exec) in result.toolExecutions.enumerated() {
+            print("\n--- Tool Call \(i + 1): \(exec.toolName) ---")
+            print("  Arguments: \(exec.arguments)")
+            print("  Succeeded: \(exec.succeeded)")
+            if let err = exec.error { print("  ERROR: \(err)") }
+            if let res = exec.result {
+                let preview = res.count > 300 ? String(res.prefix(300)) + "..." : res
+                print("  Result: \(preview)")
+            }
+        }
+        print("\n--- Agent Final Response ---")
+        print(result.content.prefix(500))
+        print(String(repeating: "=", count: 80) + "\n")
+
+        // ── ASSERTIONS ──
+        #expect(result.status == .completed)
+
+        let dataExecs = result.toolExecutions.filter { $0.toolName == "analyzeData" }
+        // Must have at least 2 tool calls: load + query to find biggest table
+        #expect(dataExecs.count >= 2, "Expected load + query but got \(dataExecs.count) tool calls: \(dataExecs.map(\.arguments))")
+
+        // Verify a query was actually executed (not just load)
+        let queryExecs = dataExecs.filter { $0.arguments.contains("\"action\":\"query\"") || $0.arguments.contains("\"action\": \"query\"") }
+        #expect(!queryExecs.isEmpty, "Expected at least one SQL query call")
+
+        // All tool calls must succeed
+        for exec in result.toolExecutions {
+            #expect(exec.succeeded, "Tool \(exec.toolName) failed: \(exec.error ?? "unknown")")
+        }
+    }
+
     // MARK: - Data Analyst + Charting Template
     // Verify Qwen3-4B can invoke ChartingSkill with correct parameters
 

@@ -21,9 +21,7 @@ struct ChatBubble: View {
                 messageContent
 
                 if let calls = message.toolCalls, !calls.isEmpty {
-                    ForEach(calls) { call in
-                        ToolCallCard(toolCall: call)
-                    }
+                    ToolCallBadges(toolCalls: calls)
                 }
             }
         }
@@ -43,6 +41,7 @@ struct ChatBubble: View {
         switch message.role {
         case "user": "person.fill"
         case "assistant": "sparkles"
+        case "assistant-streaming": "sparkles"
         case "error": "exclamationmark.triangle.fill"
         default: "ellipsis.circle"
         }
@@ -52,6 +51,7 @@ struct ChatBubble: View {
         switch message.role {
         case "user": .blue
         case "assistant": .green
+        case "assistant-streaming": .green
         case "error": .red
         default: .secondary
         }
@@ -59,20 +59,31 @@ struct ChatBubble: View {
 
     // MARK: - Message Content (with inline chart detection)
 
+    private var isAssistantRole: Bool {
+        message.role == "assistant" || message.role == "assistant-streaming"
+    }
+
     @ViewBuilder
     private var messageContent: some View {
-        if message.role == "assistant", let (before, chartSpec, after) = extractChart(from: message.content) {
+        if isAssistantRole, let (before, chartSpec, after) = extractChart(from: message.content) {
             if !before.isEmpty {
-                Text(before)
-                    .textSelection(.enabled)
+                MarkdownView(content: before)
                     .font(.body)
             }
             ChartRendererView(spec: chartSpec)
             if !after.isEmpty {
-                Text(after)
-                    .textSelection(.enabled)
+                MarkdownView(content: after)
                     .font(.body)
             }
+        } else if message.role == "assistant-streaming" {
+            HStack(spacing: 0) {
+                MarkdownView(content: message.content)
+                    .font(.body)
+                BlinkingCursor()
+            }
+        } else if isAssistantRole {
+            MarkdownView(content: message.content)
+                .font(.body)
         } else {
             Text(message.content)
                 .textSelection(.enabled)
@@ -112,9 +123,28 @@ struct ChatBubble: View {
     private var bubbleBackground: some ShapeStyle {
         switch message.role {
         case "user": AnyShapeStyle(Color.blue.opacity(0.06))
-        case "assistant": AnyShapeStyle(Color.green.opacity(0.06))
+        case "assistant", "assistant-streaming": AnyShapeStyle(Color.green.opacity(0.06))
         case "error": AnyShapeStyle(Color.red.opacity(0.06))
         default: AnyShapeStyle(Color.secondary.opacity(0.06))
         }
     }
 }
+
+// MARK: - Blinking Cursor
+
+struct BlinkingCursor: View {
+    @State private var visible = true
+
+    var body: some View {
+        Text("\u{258A}")
+            .font(.body)
+            .foregroundColor(.green)
+            .opacity(visible ? 1 : 0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    visible = false
+                }
+            }
+    }
+}
+

@@ -12,9 +12,21 @@ struct MLXModelPickerView: View {
             // Local models
             let localModels = registry.mlxLocalModels
             if !localModels.isEmpty {
-                Text("Downloaded models")
-                    .font(.caption)
+                HStack {
+                    Text("Downloaded models (\(localModels.count))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        registry.loadMLXLocal()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .help("Rescan local models")
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(localModels, id: \.self) { model in
@@ -26,9 +38,16 @@ struct MLXModelPickerView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("No local MLX models found")
+                    Text("No local models found in ~/.cache/huggingface/hub")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Scan") {
+                        registry.loadMLXLocal()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
                 }
             }
 
@@ -71,6 +90,7 @@ struct MLXModelPickerView: View {
                     .foregroundStyle(.primary)
             }
         }
+        .onAppear { registry.loadMLXLocal() }
     }
 
     private func localModelChip(_ model: String) -> some View {
@@ -144,6 +164,7 @@ struct OllamaModelPickerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !registry.ollamaAvailable {
+
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -181,6 +202,11 @@ struct OllamaModelPickerView: View {
                 TextField("e.g. qwen3:4b", text: $modelID)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
+            }
+        }
+        .task {
+            if registry.ollamaModels.isEmpty {
+                await registry.loadOllamaModels()
             }
         }
     }
