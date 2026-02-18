@@ -259,10 +259,18 @@ struct SwarmToolsIntegrationTests {
             ]
         )
 
-        // Leader delegates to math-worker
+        // Leader delegates to math-worker via delegate_to tool call
+        let delegateCall = ToolCall(
+            id: "tc-delegate",
+            name: "delegate_to",
+            arguments: #"{"member_name": "MathWorker", "task": "Calculate 6 times 7"}"#
+        )
         let leader = Agent(
             configuration: AgentConfiguration(name: "Leader"),
-            model: MockProvider(responses: ["DELEGATE:math-worker:Calculate 6 times 7"])
+            model: MockProvider(
+                responses: ["The answer is 42."],
+                toolCallResponses: [([delegateCall], "")]
+            )
         )
 
         let swarm = Swarm(
