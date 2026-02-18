@@ -28,3 +28,6 @@ credentials.json
 
 # Claude
 .claude/
+
+# Worktrees
+.worktrees/
