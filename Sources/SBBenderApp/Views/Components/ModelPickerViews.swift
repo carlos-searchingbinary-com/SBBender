@@ -26,6 +26,7 @@ struct MLXModelPickerView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help("Rescan local models")
+                    .accessibilityLabel("Rescan local models")
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -35,20 +36,27 @@ struct MLXModelPickerView: View {
                     }
                 }
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                    Text("No AI models downloaded yet. Go to Settings to download one.")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle")
+                            .foregroundStyle(.blue)
+                        Text("No AI models on this Mac yet")
+                            .font(.caption.weight(.medium))
+                    }
+                    Text("Search below to find and select a model, or use the Settings page to download one first.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Scan") {
+                    Button {
                         registry.loadMLXLocal()
+                    } label: {
+                        Label("Rescan", systemImage: "arrow.clockwise")
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                 }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10).fill(.blue.opacity(0.04)))
             }
 
             // HuggingFace search
@@ -85,10 +93,11 @@ struct MLXModelPickerView: View {
                 Text("Selected:")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(modelID)
-                    .font(.system(.caption, design: .monospaced))
+                Text(friendlyModelName(modelID))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.primary)
             }
+            .help(modelID)
         }
         .onAppear { registry.loadMLXLocal() }
     }
@@ -152,6 +161,16 @@ struct MLXModelPickerView: View {
         if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
         if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
         return "\(count)"
+    }
+
+    private func friendlyModelName(_ id: String) -> String {
+        // "mlx-community/Qwen3-4B-4bit" → "Qwen3 4B"
+        let name = id.components(separatedBy: "/").last ?? id
+        return name
+            .replacingOccurrences(of: "-4bit", with: "")
+            .replacingOccurrences(of: "-8bit", with: "")
+            .replacingOccurrences(of: "-bf16", with: "")
+            .replacingOccurrences(of: "-", with: " ")
     }
 }
 

@@ -63,7 +63,7 @@ private struct GeneralSettingsContent: View {
         Form {
             Section("Interface") {
                 Toggle("Advanced Features", isOn: $state.showAdvancedFeatures)
-                Text("Show developer tools and plugin settings in the sidebar.")
+                Text("Shows extra options like custom tools, plugin management, and technical settings. Most users don't need this.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -72,7 +72,7 @@ private struct GeneralSettingsContent: View {
                 LabeledContent("Assistants", value: "\(appState.agents.count)")
                 LabeledContent("Teams", value: "\(appState.teams.count)")
                 if appState.showAdvancedFeatures {
-                    LabeledContent("Custom Tools", value: "\(appState.toolConfigs.count)")
+                    LabeledContent("Custom Actions", value: "\(appState.toolConfigs.count)")
                     LabeledContent("Plugins", value: "\(appState.mcpServerConfigs.count)")
                 }
 

@@ -94,7 +94,7 @@ struct AgentWizardSheet: View {
                             previewRow("Emoji", preview.emoji)
                             previewRow("Capabilities", preview.enabledSkillIDs.map { SkillMetadata.displayName(for: $0) }.joined(separator: ", "))
                             if !preview.attachedSkillIDs.isEmpty {
-                                previewRow("Behaviors", preview.attachedSkillIDs.joined(separator: ", "))
+                                previewRow("Instructions", preview.attachedSkillIDs.joined(separator: ", "))
                             }
                             previewRow("Creativity", friendlyTemperature(preview.temperature))
                             previewRow("Deep Reasoning", preview.enableThinking ? "On" : "Off")

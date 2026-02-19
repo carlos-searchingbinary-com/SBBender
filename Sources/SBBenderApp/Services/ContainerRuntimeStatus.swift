@@ -14,10 +14,10 @@ enum ContainerRuntimeStatus: Sendable {
 
     var label: String {
         switch self {
-        case .ready: "Container Runtime Ready"
+        case .ready: "Sandbox Ready"
         case .notSupported: "Not Supported"
-        case .kernelMissing: "Linux Kernel Not Found"
-        case .initFailed(let msg): "Init Failed: \(msg)"
+        case .kernelMissing: "Setup Needed"
+        case .initFailed: "Setup Error"
         }
     }
 
@@ -26,11 +26,11 @@ enum ContainerRuntimeStatus: Sendable {
         case .ready:
             nil
         case .notSupported:
-            "Containerized skills require macOS 26 or later."
+            "Sandboxed skills require macOS 26 or later."
         case .kernelMissing:
-            "Install Apple's container CLI to download the Linux kernel. Run: brew install apple/container/container && container setup"
-        case .initFailed(let msg):
-            "Container manager failed to initialize: \(msg)"
+            "Additional setup is needed to run sandboxed skills. Enable Advanced Features in Settings for installation steps."
+        case .initFailed:
+            "Something went wrong setting up the sandbox. Try restarting the app."
         }
     }
 }

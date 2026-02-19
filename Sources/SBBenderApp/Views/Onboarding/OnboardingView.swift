@@ -99,7 +99,7 @@ struct OnboardingView: View {
             Text("Welcome to SBBender")
                 .font(.largeTitle.bold())
 
-            Text("Run AI assistants on your Mac using local models.\nNo cloud, no API keys, full privacy.")
+            Text("Run AI assistants directly on your Mac.\nPrivate by default — your data stays on your device.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

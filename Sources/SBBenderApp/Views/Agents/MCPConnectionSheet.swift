@@ -38,11 +38,11 @@ struct MCPConnectionSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "server.rack")
+                Image(systemName: "puzzlepiece.extension")
                     .font(.title2)
                     .foregroundStyle(.blue)
                 VStack(alignment: .leading) {
-                    Text(isEditing ? "Edit MCP Server" : "New MCP Server")
+                    Text(isEditing ? "Edit Plugin" : "New Plugin")
                         .font(.title2.bold())
                     if !name.isEmpty {
                         Text(name)
@@ -64,7 +64,7 @@ struct MCPConnectionSheet: View {
 
             Form {
                 Section("Connection") {
-                    TextField("Server Name", text: $name)
+                    TextField("Plugin Name", text: $name)
                     TextField("Command (e.g. npx)", text: $command)
                         .font(.system(.body, design: .monospaced))
                     TextField("Arguments (space-separated)", text: $argumentsText)
@@ -132,22 +132,23 @@ struct MCPConnectionSheet: View {
                         case .connected(let count):
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
-                            Text("Connected (\(count) tools)")
+                            Text("Connected — \(count) action\(count == 1 ? "" : "s") available")
                         case .failed(let msg):
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.red)
-                            Text(msg)
+                            Text("Connection failed. Check the command and try again.")
                                 .foregroundStyle(.red)
                                 .lineLimit(2)
+                                .help(msg)
                         }
                     }
 
                     if !discoveredTools.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Discovered Tools:")
+                            Text("Available Actions:")
                                 .font(.caption.bold())
                             ForEach(discoveredTools, id: \.self) { tool in
-                                Label(tool, systemImage: "wrench")
+                                Label(tool, systemImage: "bolt.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

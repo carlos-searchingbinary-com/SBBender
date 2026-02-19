@@ -9,9 +9,9 @@ struct MCPServersView: View {
         VStack(spacing: 0) {
             if appState.mcpServerConfigs.isEmpty {
                 ContentUnavailableView(
-                    "No MCP Servers",
-                    systemImage: "server.rack",
-                    description: Text("Connect to MCP (Model Context Protocol) servers to extend agent capabilities with external tools.")
+                    "No Plugins",
+                    systemImage: "puzzlepiece.extension",
+                    description: Text("Plugins let your assistants connect to external services and gain new abilities.")
                 )
             } else {
                 List {
@@ -20,6 +20,7 @@ struct MCPServersView: View {
                             Image(systemName: server.enabled ? "circle.fill" : "circle")
                                 .foregroundStyle(server.enabled ? .green : .secondary)
                                 .font(.caption)
+                                .accessibilityLabel(server.enabled ? "Enabled" : "Disabled")
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(server.name)
@@ -48,6 +49,7 @@ struct MCPServersView: View {
                                 Image(systemName: "pencil.circle")
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(server.name)")
                         }
                         .padding(.vertical, 4)
                     }
@@ -59,7 +61,7 @@ struct MCPServersView: View {
                 }
             }
         }
-        .navigationTitle("MCP Servers")
+        .navigationTitle("Plugins")
         .toolbar {
             ToolbarItem {
                 Button {
@@ -68,7 +70,8 @@ struct MCPServersView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("New MCP Server")
+                .help("Add Plugin")
+                .accessibilityLabel("Add Plugin")
             }
         }
         .sheet(isPresented: $showConnectionSheet) {

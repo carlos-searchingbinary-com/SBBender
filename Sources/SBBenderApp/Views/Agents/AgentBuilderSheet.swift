@@ -178,7 +178,7 @@ struct AgentBuilderSheet: View {
                         Label("\(enabledNativeToolIDs.count) capabilities", systemImage: "wrench.fill")
                     }
                     if !attachedSkillIDs.isEmpty {
-                        Label("\(attachedSkillIDs.count) behaviors", systemImage: "doc.text")
+                        Label("\(attachedSkillIDs.count) instruction\(attachedSkillIDs.count == 1 ? "" : "s")", systemImage: "doc.text")
                     }
                     if knowledgeEnabled {
                         Label("Knowledge", systemImage: "book.closed.fill")
@@ -619,9 +619,9 @@ struct AgentBuilderSheet: View {
                     .foregroundStyle(.green)
                     .frame(width: 28)
                 VStack(alignment: .leading) {
-                    Text("Custom Tools")
+                    Text("Custom Actions")
                         .font(.subheadline)
-                    Text(agentTools.isEmpty ? "No custom tools" : "\(agentTools.count) tool\(agentTools.count == 1 ? "" : "s") attached")
+                    Text(agentTools.isEmpty ? "No custom actions" : "\(agentTools.count) action\(agentTools.count == 1 ? "" : "s") attached")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -667,9 +667,9 @@ struct AgentBuilderSheet: View {
                     .foregroundStyle(.orange)
                     .frame(width: 28)
                 VStack(alignment: .leading) {
-                    Text("MCP Servers")
+                    Text("Plugins")
                         .font(.subheadline)
-                    Text(serverConfigs.isEmpty ? "No servers connected" : "\(serverConfigs.count) server\(serverConfigs.count == 1 ? "" : "s") connected")
+                    Text(serverConfigs.isEmpty ? "No plugins connected" : "\(serverConfigs.count) plugin\(serverConfigs.count == 1 ? "" : "s") connected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -730,6 +730,7 @@ struct AgentBuilderSheet: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: $topP, in: 0.0...1.0, step: 0.05)
+                .help("Controls how focused the AI's word choices are. Lower = more predictable, higher = more diverse.")
 
             HStack {
                 Text("Variety")
@@ -740,11 +741,14 @@ struct AgentBuilderSheet: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: $repetitionPenalty, in: 1.0...2.0, step: 0.05)
+                .help("Discourages repeating the same words. Higher values produce more varied language.")
 
             Stepper("Actions per step: \(toolCallLimit)", value: $toolCallLimit, in: 1...100)
                 .font(.caption)
+                .help("Maximum number of actions the assistant can take in a single response.")
             Stepper("Max steps: \(maxIterations)", value: $maxIterations, in: 1...50)
                 .font(.caption)
+                .help("Maximum number of back-and-forth reasoning cycles before stopping.")
 
             Toggle("Markdown output", isOn: $markdownOutput)
                 .font(.caption)
@@ -946,7 +950,7 @@ struct AgentBuilderSheet: View {
     private var skillsPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Behaviors")
+                Text("Instruction Skills")
                     .font(.subheadline.weight(.medium))
                 Spacer()
                 if !installedSkills.isEmpty {
@@ -960,7 +964,7 @@ struct AgentBuilderSheet: View {
                         .font(.caption)
                 }
             }
-            Text("Instruction behaviors that shape how your assistant thinks and works")
+            Text("Instruction sets that shape how your assistant thinks and works")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -968,7 +972,7 @@ struct AgentBuilderSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("No behaviors installed — visit the Capability Store to add some")
+                    Text("No instruction skills installed — visit the Capability Store to add some")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

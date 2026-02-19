@@ -48,10 +48,10 @@ struct SidebarView: View {
                     }
                 }
                 if appState.showAdvancedFeatures {
-                    Section("Tools") {
-                        Label("Custom Tools", systemImage: "wrench.and.screwdriver")
+                    Section("Advanced") {
+                        Label("Custom Actions", systemImage: "wrench.and.screwdriver")
                             .tag(SidebarItem.toolManager)
-                        Label("MCP Servers", systemImage: "server.rack")
+                        Label("Plugins", systemImage: "puzzlepiece.extension")
                             .tag(SidebarItem.mcpServers)
                     }
                 }

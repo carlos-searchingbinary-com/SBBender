@@ -19,7 +19,7 @@ struct JSONSchemaEditor: View {
                     required: true
                 ))
             } label: {
-                Label("Add Parameter", systemImage: "plus.circle")
+                Label("Add Input", systemImage: "plus.circle")
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
@@ -44,9 +44,9 @@ struct JSONSchemaEditor: View {
             TextField("description", text: $parameters[index].description)
                 .textFieldStyle(.roundedBorder)
 
-            Toggle("Req", isOn: $parameters[index].required)
+            Toggle("Required", isOn: $parameters[index].required)
                 .toggleStyle(.checkbox)
-                .frame(width: 50)
+                .frame(width: 80)
 
             Button {
                 parameters.remove(at: index)
