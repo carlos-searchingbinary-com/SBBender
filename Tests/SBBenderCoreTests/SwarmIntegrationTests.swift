@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SBBender
+@testable import SBBenderCore
 
 /// Integration tests that run a real MLX swarm with Apple NLP skills.
 ///

@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import SBBenderCore
 import os
 
 #if canImport(System)
@@ -21,7 +22,7 @@ public actor MCPManager {
     }
 
     private var connections: [String: ServerConnection] = [:]
-    private var toolCache: [String: [Tool]] = [:]
+    private var toolCache: [String: [SBTool]] = [:]
 
     public init() {}
 
@@ -139,19 +140,19 @@ public actor MCPManager {
         guard let connection = connections[serverName] else { return }
 
         let result = try await connection.client.listTools()
-        let sbbenderTools = result.tools.map { mcpTool -> Tool in
+        let sbbenderTools = result.tools.map { mcpTool -> SBTool in
             convertMCPTool(mcpTool, serverName: serverName)
         }
         toolCache[serverName] = sbbenderTools
     }
 
     /// Get all tools from all connected servers as SBBender tools.
-    public func allTools() -> [Tool] {
+    public func allTools() -> [SBTool] {
         toolCache.values.flatMap { $0 }
     }
 
     /// Get tools from a specific server.
-    public func tools(for serverName: String) -> [Tool] {
+    public func tools(for serverName: String) -> [SBTool] {
         toolCache[serverName] ?? []
     }
 
@@ -199,7 +200,7 @@ public actor MCPManager {
     // MARK: - MCP Tool → SBBender Tool Conversion
 
     /// Convert an MCP Tool to a SBBender Tool.
-    private func convertMCPTool(_ mcpTool: MCP.Tool, serverName: String) -> Tool {
+    private func convertMCPTool(_ mcpTool: MCP.Tool, serverName: String) -> SBTool {
         let toolName = mcpTool.name
         let toolDescription = mcpTool.description ?? "MCP tool: \(toolName)"
         let schema = convertInputSchema(mcpTool.inputSchema)
@@ -207,7 +208,7 @@ public actor MCPManager {
         // Capture self (actor) — the tool closure calls back into the actor
         let mgr = self
 
-        return Tool(
+        return SBTool(
             name: toolName,
             description: toolDescription,
             parameters: schema

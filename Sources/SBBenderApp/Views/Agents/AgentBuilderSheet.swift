@@ -10,9 +10,9 @@ private enum BuilderStep: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .persona: "Persona"
+        case .persona: "Personality"
         case .capabilities: "Capabilities"
-        case .behavior: "Behavior"
+        case .behavior: "Settings"
         }
     }
 
@@ -35,7 +35,7 @@ struct AgentBuilderSheet: View {
     var template: AgentTemplate? = nil
 
     // Identity
-    @State private var name: String = "New Agent"
+    @State private var name: String = "New AI Assistant"
     @State private var emoji: String = "🤖"
     @State private var gradientHex: [String] = ["#0077B6", "#00B4D8"]
     @State private var instructions: String = "You are a helpful assistant."
@@ -170,15 +170,15 @@ struct AgentBuilderSheet: View {
                 .shadow(color: Color(hex: gradientHex.first ?? "#0077B6").opacity(0.4), radius: 8, y: 4)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(name.isEmpty ? "Untitled Agent" : name)
+                Text(name.isEmpty ? "Untitled Assistant" : name)
                     .font(.title2.bold())
                 // Capability summary
                 HStack(spacing: 8) {
                     if !enabledNativeToolIDs.isEmpty {
-                        Label("\(enabledNativeToolIDs.count) tools", systemImage: "wrench.fill")
+                        Label("\(enabledNativeToolIDs.count) capabilities", systemImage: "wrench.fill")
                     }
                     if !attachedSkillIDs.isEmpty {
-                        Label("\(attachedSkillIDs.count) skills", systemImage: "doc.text")
+                        Label("\(attachedSkillIDs.count) behaviors", systemImage: "doc.text")
                     }
                     if knowledgeEnabled {
                         Label("Knowledge", systemImage: "book.closed.fill")
@@ -187,7 +187,7 @@ struct AgentBuilderSheet: View {
                         Label("Memory", systemImage: "brain")
                     }
                     if !mcpServerIDs.isEmpty {
-                        Label("\(mcpServerIDs.count) MCP", systemImage: "server.rack")
+                        Label("\(mcpServerIDs.count) plugins", systemImage: "server.rack")
                     }
                 }
                 .font(.caption)
@@ -205,7 +205,7 @@ struct AgentBuilderSheet: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("Describe what you want and let AI configure the agent")
+                .help("Describe what you want and let AI configure the assistant")
             }
         }
         .padding(.horizontal, 24)
@@ -270,7 +270,7 @@ struct AgentBuilderSheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Name")
                         .font(.subheadline.weight(.medium))
-                    TextField("Give your agent a name", text: $name)
+                    TextField("Give your assistant a name", text: $name)
                         .textFieldStyle(.roundedBorder)
                         .font(.title3)
                 }
@@ -293,7 +293,7 @@ struct AgentBuilderSheet: View {
                     FeatureToggleRow(
                         icon: "book.closed.fill", color: .blue,
                         title: "Knowledge Base",
-                        subtitle: "Feed documents and files for the agent to reference",
+                        subtitle: "Feed documents and files for the assistant to reference",
                         isOn: $knowledgeEnabled
                     )
                     if knowledgeEnabled && config?.id != nil {
@@ -384,12 +384,14 @@ struct AgentBuilderSheet: View {
                     }
                 }
 
-                // Advanced
-                DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
-                    advancedSettingsContent
+                // Advanced (only for power users)
+                if appState.showAdvancedFeatures {
+                    DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+                        advancedSettingsContent
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
             }
             .padding(24)
         }
@@ -403,7 +405,7 @@ struct AgentBuilderSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Name")
                     .font(.subheadline.weight(.medium))
-                TextField("Give your agent a name", text: $name)
+                TextField("Give your assistant a name", text: $name)
                     .textFieldStyle(.roundedBorder)
                     .font(.title3)
             }
@@ -540,7 +542,7 @@ struct AgentBuilderSheet: View {
                 TextField(placeholder, text: $modelID)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                Text("Add your API key in Settings to load available models")
+                Text("Add your access key in Settings to load available models")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -578,7 +580,7 @@ struct AgentBuilderSheet: View {
                 Button("Import File") { loadSystemPromptFile() }
                     .font(.caption)
             }
-            Text("Tell the agent who it is and how it should behave — supports Markdown")
+            Text("Tell the assistant who it is and how it should behave — supports Markdown")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -603,7 +605,9 @@ struct AgentBuilderSheet: View {
         }
     }
 
+    @ViewBuilder
     private var connectionsSection: some View {
+        if appState.showAdvancedFeatures {
         VStack(alignment: .leading, spacing: 10) {
             Text("Connections")
                 .font(.subheadline.weight(.medium))
@@ -712,12 +716,13 @@ struct AgentBuilderSheet: View {
                 .padding(.leading, 44)
             }
         }
+        } // if showAdvancedFeatures
     }
 
     private var advancedSettingsContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Top P")
+                Text("Focus")
                     .font(.caption)
                 Spacer()
                 Text(String(format: "%.2f", topP))
@@ -727,7 +732,7 @@ struct AgentBuilderSheet: View {
             Slider(value: $topP, in: 0.0...1.0, step: 0.05)
 
             HStack {
-                Text("Repetition Penalty")
+                Text("Variety")
                     .font(.caption)
                 Spacer()
                 Text(String(format: "%.2f", repetitionPenalty))
@@ -736,9 +741,9 @@ struct AgentBuilderSheet: View {
             }
             Slider(value: $repetitionPenalty, in: 1.0...2.0, step: 0.05)
 
-            Stepper("Tool calls per turn: \(toolCallLimit)", value: $toolCallLimit, in: 1...100)
+            Stepper("Actions per step: \(toolCallLimit)", value: $toolCallLimit, in: 1...100)
                 .font(.caption)
-            Stepper("Max iterations: \(maxIterations)", value: $maxIterations, in: 1...50)
+            Stepper("Max steps: \(maxIterations)", value: $maxIterations, in: 1...50)
                 .font(.caption)
 
             Toggle("Markdown output", isOn: $markdownOutput)
@@ -790,7 +795,7 @@ struct AgentBuilderSheet: View {
                 FeatureToggleRow(
                     icon: "book.closed.fill", color: .blue,
                     title: "Knowledge Base",
-                    subtitle: "Feed documents and files for the agent to reference",
+                    subtitle: "Feed documents and files for the assistant to reference",
                     isOn: $knowledgeEnabled
                 )
 
@@ -879,12 +884,14 @@ struct AgentBuilderSheet: View {
 
             Divider()
 
-            // Advanced (collapsed by default)
-            DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
-                advancedSettingsContent
+            // Advanced (collapsed by default, only for power users)
+            if appState.showAdvancedFeatures {
+                DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+                    advancedSettingsContent
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
             }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -893,7 +900,7 @@ struct AgentBuilderSheet: View {
     private var nativeToolsPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Native Tools")
+                Text("Capabilities")
                     .font(.subheadline.weight(.medium))
                 Spacer()
                 Button("All") {
@@ -905,7 +912,7 @@ struct AgentBuilderSheet: View {
                 Button("None") { enabledNativeToolIDs.removeAll() }
                     .font(.caption)
             }
-            Text("Built-in Apple capabilities your agent can use as tools")
+            Text("Built-in Apple capabilities your assistant can use")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -939,7 +946,7 @@ struct AgentBuilderSheet: View {
     private var skillsPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Skills")
+                Text("Behaviors")
                     .font(.subheadline.weight(.medium))
                 Spacer()
                 if !installedSkills.isEmpty {
@@ -953,7 +960,7 @@ struct AgentBuilderSheet: View {
                         .font(.caption)
                 }
             }
-            Text("Instruction skills that shape how your agent thinks and works")
+            Text("Instruction behaviors that shape how your assistant thinks and works")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -961,7 +968,7 @@ struct AgentBuilderSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("No skills installed — visit the Skill Library to add some")
+                    Text("No behaviors installed — visit the Capability Store to add some")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1015,7 +1022,7 @@ struct AgentBuilderSheet: View {
                     .keyboardShortcut(.cancelAction)
 
                 if currentStep == .behavior {
-                    Button("Create Agent") { save() }
+                    Button("Create Assistant") { save() }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)

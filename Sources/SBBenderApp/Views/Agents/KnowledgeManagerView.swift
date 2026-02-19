@@ -8,12 +8,15 @@ struct KnowledgeManagerView: View {
 
     @State private var knowledgeFiles: [KnowledgeFileEntry] = []
     @State private var isIngesting = false
-    @State private var ingestProgress: String = ""
+    @State private var ingestionPhase: IngestionProgress.Phase?
+    @State private var currentFileName: String = ""
     @State private var searchQuery: String = ""
     @State private var searchResults: [DocumentChunk] = []
     @State private var isSearching = false
     @State private var totalChunks: Int = 0
     @State private var indexBuilt = false
+    @State private var processingFileIndex: Int = -1
+    @State private var totalFilesToProcess: Int = 0
 
     private var indexer: DocumentIndexer {
         appState.getOrCreateKnowledgeIndexer(for: agentConfig)
@@ -26,17 +29,13 @@ struct KnowledgeManagerView: View {
                 VStack(alignment: .leading) {
                     Text("Knowledge Base")
                         .font(.title2.bold())
-                    Text("\(knowledgeFiles.count) documents, \(totalChunks) chunks\(indexBuilt ? ", index built" : "")")
+                    Text("\(knowledgeFiles.count) documents, \(totalChunks) sections\(indexBuilt ? ", searchable" : "")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if isIngesting {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(ingestProgress)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    ingestionProgressView
                 }
             }
             .padding()
@@ -76,7 +75,7 @@ struct KnowledgeManagerView: View {
                                 VStack(alignment: .leading) {
                                     Text(file.fileName)
                                         .font(.body)
-                                    Text("\(file.chunkCount) chunks")
+                                    Text("\(file.chunkCount) sections")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -93,56 +92,96 @@ struct KnowledgeManagerView: View {
                 }
                 .frame(minWidth: 300)
 
-                // Right: Search tester
-                VStack(spacing: 12) {
-                    Text("Search Test")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // Right: Search tester (advanced only)
+                if appState.showAdvancedFeatures {
+                    VStack(spacing: 12) {
+                        Text("Search Test")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack {
-                        TextField("Query...", text: $searchQuery)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { Task { await search() } }
+                        HStack {
+                            TextField("Query...", text: $searchQuery)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { Task { await search() } }
 
-                        Button("Search") { Task { await search() } }
-                            .disabled(searchQuery.isEmpty || isSearching || !indexBuilt)
-                    }
+                            Button("Search") { Task { await search() } }
+                                .disabled(searchQuery.isEmpty || isSearching || !indexBuilt)
+                        }
 
-                    if isSearching {
-                        ProgressView("Searching...")
-                    } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 8) {
-                                ForEach(searchResults) { chunk in
-                                    GroupBox {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack {
-                                                Text(chunk.sourceTitle)
-                                                    .font(.caption.bold())
-                                                Spacer()
-                                                Text("chunk \(chunk.chunkIndex)")
-                                                    .font(.caption2)
+                        if isSearching {
+                            ProgressView("Searching...")
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 8) {
+                                    ForEach(searchResults) { chunk in
+                                        GroupBox {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                HStack {
+                                                    Text(chunk.sourceTitle)
+                                                        .font(.caption.bold())
+                                                    Spacer()
+                                                    Text("Section \(chunk.chunkIndex)")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(Capsule().fill(.blue.opacity(0.1)))
+                                                }
+                                                Text(chunk.content.prefix(300))
+                                                    .font(.caption)
                                                     .foregroundStyle(.secondary)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(Capsule().fill(.blue.opacity(0.1)))
                                             }
-                                            Text(chunk.content.prefix(300))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    .padding()
+                    .frame(minWidth: 300)
                 }
-                .padding()
-                .frame(minWidth: 300)
             }
         }
         .frame(minWidth: 700, minHeight: 500)
         .task { await loadState() }
+    }
+
+    // MARK: - Progress View
+
+    @ViewBuilder
+    private var ingestionProgressView: some View {
+        HStack(spacing: 8) {
+            switch ingestionPhase {
+            case .chunking:
+                ProgressView()
+                    .controlSize(.small)
+                Text("Reading \(currentFileName)...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .embedding(let current, let total):
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView(value: Double(current), total: Double(max(total, 1)))
+                        .frame(width: 120)
+                    Text("Analyzing \(current) of \(total)...")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            case .buildingIndex:
+                ProgressView()
+                    .controlSize(.small)
+                Text("Making searchable...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .done, .none:
+                EmptyView()
+            }
+
+            if totalFilesToProcess > 1 {
+                Text("(\(processingFileIndex + 1)/\(totalFilesToProcess))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     // MARK: - Actions
@@ -157,14 +196,27 @@ struct KnowledgeManagerView: View {
 
     private func ingestFiles(_ urls: [URL]) async {
         isIngesting = true
+        totalFilesToProcess = urls.count
         let loader = DocumentLoader()
 
-        for url in urls {
+        // Wire progress callback
+        await indexer.setOnProgress { [self] progress in
+            Task { @MainActor in
+                self.ingestionPhase = progress.phase
+                if !progress.fileName.isEmpty {
+                    self.currentFileName = progress.fileName
+                }
+            }
+        }
+
+        for (fileIndex, url) in urls.enumerated() {
+            processingFileIndex = fileIndex
+            currentFileName = url.lastPathComponent
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
 
             do {
                 if isDir {
-                    ingestProgress = "Loading folder: \(url.lastPathComponent)..."
+                    ingestionPhase = .chunking
                     let docs = try loader.loadDirectory(at: url.path)
                     for doc in docs {
                         try await indexer.ingest(content: doc.content, title: doc.title, metadata: doc.metadata)
@@ -181,7 +233,6 @@ struct KnowledgeManagerView: View {
                     knowledgeFiles.insert(entry, at: 0)
                     totalChunks = chunkCount
                 } else {
-                    ingestProgress = "Loading: \(url.lastPathComponent)..."
                     let ext = url.pathExtension.lowercased()
 
                     var docs: [(content: String, title: String, metadata: [String: String])] = []
@@ -215,27 +266,30 @@ struct KnowledgeManagerView: View {
                     totalChunks = chunkCount
                 }
             } catch {
-                ingestProgress = "Error: \(error.localizedDescription)"
+                ingestionPhase = nil
+                currentFileName = "Error: \(error.localizedDescription)"
             }
         }
 
         // Auto-build index after ingestion
         await rebuildIndex()
         isIngesting = false
-        ingestProgress = ""
+        ingestionPhase = nil
+        currentFileName = ""
+        totalFilesToProcess = 0
     }
 
     private func rebuildIndex() async {
         isIngesting = true
-        ingestProgress = "Building index..."
+        ingestionPhase = .buildingIndex
         do {
             try await indexer.buildIndex()
             indexBuilt = await indexer.indexBuilt
         } catch {
-            ingestProgress = "Index error: \(error.localizedDescription)"
+            currentFileName = "Index error: \(error.localizedDescription)"
         }
         isIngesting = false
-        ingestProgress = ""
+        ingestionPhase = nil
     }
 
     private func search() async {

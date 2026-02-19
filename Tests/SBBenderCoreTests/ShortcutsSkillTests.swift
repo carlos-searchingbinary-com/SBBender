@@ -1,5 +1,5 @@
 import Testing
-@testable import SBBender
+@testable import SBBenderCore
 
 @Suite("ShortcutsSkill Tests")
 struct ShortcutsSkillTests {

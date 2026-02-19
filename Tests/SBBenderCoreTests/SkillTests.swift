@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SBBender
+@testable import SBBenderCore
 
 @Suite("Language Detection Skill Tests")
 struct LanguageDetectionTests {

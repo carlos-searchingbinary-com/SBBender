@@ -20,9 +20,9 @@ struct AgentWizardSheet: View {
                     .font(.title2)
                     .foregroundStyle(.purple)
                 VStack(alignment: .leading) {
-                    Text("AI Agent Wizard")
+                    Text("AI Assistant Wizard")
                         .font(.title2.bold())
-                    Text("Describe your ideal agent and let AI configure it")
+                    Text("Describe your ideal assistant and let AI configure it")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -37,7 +37,7 @@ struct AgentWizardSheet: View {
             VStack(spacing: 16) {
                 // Description input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("What should this agent do?")
+                    Text("What should this assistant do?")
                         .font(.headline)
                     TextEditor(text: $userDescription)
                         .font(.body)
@@ -46,7 +46,7 @@ struct AgentWizardSheet: View {
                         .padding(8)
                         .background(RoundedRectangle(cornerRadius: 8).fill(.background))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
-                    Text("Example: \"An agent that helps me manage my calendar, search the web for meeting prep, and summarize discussions\"")
+                    Text("Example: \"An assistant that helps me manage my calendar, search the web for meeting prep, and summarize discussions\"")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -62,7 +62,7 @@ struct AgentWizardSheet: View {
                         } else {
                             Image(systemName: "sparkles")
                         }
-                        Text(isGenerating ? "Generating..." : "Generate Agent Config")
+                        Text(isGenerating ? "Setting up..." : "Set Up Assistant")
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -86,18 +86,20 @@ struct AgentWizardSheet: View {
                 // Preview
                 if let preview = previewConfig {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Generated Configuration")
+                        Text("Your Assistant Setup")
                             .font(.headline)
 
                         VStack(alignment: .leading, spacing: 8) {
                             previewRow("Name", preview.name)
                             previewRow("Emoji", preview.emoji)
-                            previewRow("Tools", preview.enabledSkillIDs.joined(separator: ", "))
-                            previewRow("Skills", preview.attachedSkillIDs.joined(separator: ", "))
-                            previewRow("Temperature", String(format: "%.2f", preview.temperature))
-                            previewRow("Thinking", preview.enableThinking ? "Enabled" : "Disabled")
-                            previewRow("Knowledge", preview.knowledgeEnabled ? "Enabled" : "Disabled")
-                            previewRow("Learning", preview.learningEnabled ? "Enabled" : "Disabled")
+                            previewRow("Capabilities", preview.enabledSkillIDs.map { SkillMetadata.displayName(for: $0) }.joined(separator: ", "))
+                            if !preview.attachedSkillIDs.isEmpty {
+                                previewRow("Behaviors", preview.attachedSkillIDs.joined(separator: ", "))
+                            }
+                            previewRow("Creativity", friendlyTemperature(preview.temperature))
+                            previewRow("Deep Reasoning", preview.enableThinking ? "On" : "Off")
+                            previewRow("Knowledge Base", preview.knowledgeEnabled ? "On" : "Off")
+                            previewRow("Memory", preview.learningEnabled ? "On" : "Off")
 
                             Divider()
 
@@ -120,7 +122,7 @@ struct AgentWizardSheet: View {
 
                             Spacer()
 
-                            Button("Use This Config") {
+                            Button("Use This Setup") {
                                 onConfigGenerated(preview)
                                 dismiss()
                             }
@@ -145,6 +147,16 @@ struct AgentWizardSheet: View {
             Text(value.isEmpty ? "-" : value)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func friendlyTemperature(_ t: Float) -> String {
+        switch t {
+        case 0.0...0.2: return "Very precise"
+        case 0.2...0.5: return "Focused"
+        case 0.5...0.8: return "Balanced"
+        case 0.8...1.1: return "Creative"
+        default: return "Very creative"
         }
     }
 

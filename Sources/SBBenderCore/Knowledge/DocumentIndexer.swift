@@ -327,6 +327,24 @@ public actor HNSWGraph {
     /// Number of nodes in the graph.
     public var nodeCount: Int { nodes.count }
 
+    /// Import graph connectivity from CSR format.
+    /// Rebuilds graph nodes from stored topology (layer 0 only).
+    public func importCSR(offsets: [Int], neighbors: [Int], nodeCount: Int) {
+        self.nodes = []
+        self.vectors = []
+        for i in 0..<nodeCount {
+            let start = offsets[i]
+            let end = offsets[i + 1]
+            let connections = Array(neighbors[start..<end])
+            let node = Node(id: i, connections: [connections])
+            nodes.append(node)
+        }
+        if !nodes.isEmpty {
+            entryPoint = 0
+            maxLevel = 0
+        }
+    }
+
     /// Export graph connectivity as CSR (Compressed Sparse Row) format.
     /// This is the storage-efficient format — no embeddings needed.
     public func exportCSR() -> (offsets: [Int], neighbors: [Int]) {
@@ -483,6 +501,25 @@ public struct NLEmbeddingProvider: EmbeddingProvider, Sendable {
     }
 }
 
+// MARK: - Ingestion Progress
+
+/// Progress updates during document ingestion and index building.
+public struct IngestionProgress: Sendable {
+    public enum Phase: Sendable, Equatable {
+        case chunking
+        case embedding(current: Int, total: Int)
+        case buildingIndex
+        case done
+    }
+    public let phase: Phase
+    public let fileName: String
+
+    public init(phase: Phase, fileName: String = "") {
+        self.phase = phase
+        self.fileName = fileName
+    }
+}
+
 // MARK: - Document Indexer (LEANN-inspired)
 
 /// A storage-efficient document indexer inspired by LEANN.
@@ -536,6 +573,22 @@ public actor DocumentIndexer: KnowledgeSource {
     private var bm25: BM25Index?
     private var isBuilt: Bool = false
 
+    /// Optional persistence backend for saving/loading index state.
+    public var persistence: (any KnowledgeIndexPersistence)?
+
+    /// Set the persistence backend (convenience for actor isolation).
+    public func setPersistence(_ backend: any KnowledgeIndexPersistence) {
+        persistence = backend
+    }
+
+    /// Optional callback for ingestion progress updates.
+    public var onProgress: (@Sendable (IngestionProgress) -> Void)?
+
+    /// Set the progress callback (convenience for actor isolation).
+    public func setOnProgress(_ callback: (@Sendable (IngestionProgress) -> Void)?) {
+        onProgress = callback
+    }
+
     public init(
         config: Config = Config(),
         embeddingProvider: any EmbeddingProvider = NLEmbeddingProvider()
@@ -557,6 +610,8 @@ public actor DocumentIndexer: KnowledgeSource {
         title: String,
         metadata: [String: String] = [:]
     ) async throws {
+        onProgress?(IngestionProgress(phase: .chunking, fileName: title))
+
         let sourceID = UUID().uuidString
         let newChunks = chunker.chunk(content, sourceID: sourceID, sourceTitle: title, metadata: metadata)
         guard !newChunks.isEmpty else { return }
@@ -579,20 +634,100 @@ public actor DocumentIndexer: KnowledgeSource {
         guard !chunks.isEmpty else { return }
 
         let texts = chunks.map(\.content)
+        let total = texts.count
 
-        // 1. Compute embeddings
-        let embeddings = try await embeddingProvider.embed(texts)
+        // 1. Compute embeddings in batches with progress
+        onProgress?(IngestionProgress(phase: .embedding(current: 0, total: total)))
+        let batchSize = 32
+        var allEmbeddings: [[Float]] = []
+        allEmbeddings.reserveCapacity(total)
+
+        for batchStart in stride(from: 0, to: total, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, total)
+            let batch = Array(texts[batchStart..<batchEnd])
+            let batchEmbeddings = try await embeddingProvider.embed(batch)
+            allEmbeddings.append(contentsOf: batchEmbeddings)
+            onProgress?(IngestionProgress(phase: .embedding(current: batchEnd, total: total)))
+        }
 
         // 2. Build HNSW graph
-        await graph.build(vectors: embeddings)
+        onProgress?(IngestionProgress(phase: .buildingIndex))
+        await graph.build(vectors: allEmbeddings)
 
         // 3. Build BM25 index
         bm25 = BM25Index(documents: texts)
 
         isBuilt = true
+        onProgress?(IngestionProgress(phase: .done))
         let count = self.chunks.count
         let dim = self.embeddingProvider.dimension
         Log.tool.info("Index built: \(count) chunks, dim=\(dim)")
+
+        // Persist if backend is available
+        await saveToPersistence(agentID: nil)
+    }
+
+    /// Save current index state to persistence.
+    /// If agentID is nil, skips (caller must pass agentID via saveToPersistence(agentID:)).
+    private func saveToPersistence(agentID: String?) async {
+        guard let persistence, let agentID else { return }
+        do {
+            try await persistence.saveChunks(chunks, agentID: agentID)
+            let csr = await graph.exportCSR()
+            let nodeCount = await graph.nodeCount
+            try await persistence.saveGraph(agentID: agentID, offsets: csr.offsets, neighbors: csr.neighbors, nodeCount: nodeCount)
+            Log.tool.info("Knowledge index persisted for agent \(agentID)")
+        } catch {
+            Log.tool.error("Failed to persist knowledge index: \(error.localizedDescription)")
+        }
+    }
+
+    /// Save index to persistence for a specific agent ID.
+    public func persistIndex(agentID: String) async {
+        await saveToPersistence(agentID: agentID)
+    }
+
+    /// Load index from persistence. Returns true if data was loaded.
+    public func loadFromPersistence(agentID: String) async throws -> Bool {
+        guard let persistence else { return false }
+
+        let savedChunks = try await persistence.loadChunks(agentID: agentID)
+        guard !savedChunks.isEmpty else { return false }
+
+        self.chunks = savedChunks
+
+        // Rebuild BM25
+        let texts = chunks.map(\.content)
+        bm25 = BM25Index(documents: texts)
+
+        // Load graph topology
+        if let graphData = try await persistence.loadGraph(agentID: agentID) {
+            await graph.importCSR(offsets: graphData.offsets, neighbors: graphData.neighbors, nodeCount: graphData.nodeCount)
+        }
+
+        // Recompute embeddings and rebuild graph for proper search
+        // (LEANN-style: graph topology guides search, embeddings recomputed on demand)
+        let total = texts.count
+        onProgress?(IngestionProgress(phase: .embedding(current: 0, total: total)))
+        let batchSize = 32
+        var allEmbeddings: [[Float]] = []
+        allEmbeddings.reserveCapacity(total)
+
+        for batchStart in stride(from: 0, to: total, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, total)
+            let batch = Array(texts[batchStart..<batchEnd])
+            let batchEmbeddings = try await embeddingProvider.embed(batch)
+            allEmbeddings.append(contentsOf: batchEmbeddings)
+            onProgress?(IngestionProgress(phase: .embedding(current: batchEnd, total: total)))
+        }
+
+        onProgress?(IngestionProgress(phase: .buildingIndex))
+        await graph.build(vectors: allEmbeddings)
+
+        isBuilt = true
+        onProgress?(IngestionProgress(phase: .done))
+        Log.tool.info("Knowledge index loaded from persistence: \(self.chunks.count) chunks")
+        return true
     }
 
     // MARK: - Search
@@ -675,6 +810,9 @@ public actor DocumentIndexer: KnowledgeSource {
 
     /// Number of indexed chunks.
     public var chunkCount: Int { chunks.count }
+
+    /// Number of unique source documents.
+    public var sourceCount: Int { Set(chunks.map(\.sourceID)).count }
 
     /// Whether the index has been built.
     public var indexBuilt: Bool { isBuilt }

@@ -10,7 +10,14 @@ public struct TranslationSkill: NativeTool {
     public let description = "Translate text between languages using Apple Translation"
 
     public var isAvailable: Bool {
-        get async { true }
+        get async {
+            let availability = LanguageAvailability()
+            let status = await availability.status(
+                from: Locale.Language(identifier: "en"),
+                to: Locale.Language(identifier: "es")
+            )
+            return status == .installed || status == .supported
+        }
     }
 
     public init() {}

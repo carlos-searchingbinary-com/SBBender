@@ -80,7 +80,7 @@ struct AgentListView: View {
                                     .font(.title3)
                                     .foregroundStyle(.secondary)
                             }
-                            Text("New Agent")
+                            Text("New AI Assistant")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
@@ -113,7 +113,7 @@ struct AgentListView: View {
             }
             .padding(.bottom, 20)
         }
-        .navigationTitle("My Agents")
+        .navigationTitle("My Assistants")
         .sheet(isPresented: $showingBuilder) {
             AgentBuilderSheet(config: nil)
                 .environment(appState)
@@ -127,7 +127,7 @@ struct AgentListView: View {
                 .environment(appState)
         }
         .alert(
-            "Delete Agent?",
+            "Delete Assistant?",
             isPresented: Binding(
                 get: { agentToDelete != nil },
                 set: { if !$0 { agentToDelete = nil } }
@@ -203,7 +203,7 @@ struct AgentListView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 40))
                     .foregroundStyle(.secondary)
-                Text("Create your first agent")
+                Text("Create your first AI assistant")
                     .font(.title3.weight(.semibold))
                 Text("Pick a template to get started, or build one from scratch")
                     .font(.subheadline)
@@ -291,7 +291,7 @@ private struct AgentCard: View {
                 // Feature badges
                 HStack(spacing: 8) {
                     if !config.attachedSkillIDs.isEmpty {
-                        FeaturePill(icon: "doc.text", text: "\(config.attachedSkillIDs.count) Skills", color: .indigo)
+                        FeaturePill(icon: "doc.text", text: "\(config.attachedSkillIDs.count) Behaviors", color: .indigo)
                     }
                     if config.knowledgeEnabled {
                         FeaturePill(icon: "book.closed.fill", text: "Knowledge", color: .blue)
@@ -300,13 +300,13 @@ private struct AgentCard: View {
                         FeaturePill(icon: "brain", text: "Memory", color: .purple)
                     }
                     if !config.mcpServerIDs.isEmpty {
-                        FeaturePill(icon: "server.rack", text: "\(config.mcpServerIDs.count) MCP", color: .orange)
+                        FeaturePill(icon: "server.rack", text: "\(config.mcpServerIDs.count) Plugins", color: .orange)
                     }
                     if !config.customToolIDs.isEmpty {
                         FeaturePill(icon: "wrench.fill", text: "\(config.customToolIDs.count) Tools", color: .green)
                     }
                     if config.enableThinking {
-                        FeaturePill(icon: "lightbulb.fill", text: "Thinking", color: .yellow)
+                        FeaturePill(icon: "lightbulb.fill", text: "Deep Reasoning", color: .yellow)
                     }
                 }
             }
@@ -507,7 +507,7 @@ private struct LargeTemplateCard: View {
                 // Skill preview
                 HStack(spacing: 4) {
                     ForEach(template.skillIDs.prefix(3), id: \.self) { skillID in
-                        Text(skillID)
+                        Text(SkillMetadata.displayName(for: skillID))
                             .font(.caption2)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)

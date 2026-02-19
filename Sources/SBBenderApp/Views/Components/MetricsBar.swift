@@ -2,24 +2,25 @@ import SwiftUI
 import SBBender
 
 struct MetricsBar: View {
+    @Environment(AppState.self) private var appState
     let metrics: RunMetrics
     let statusMessage: String
 
     var body: some View {
         HStack(spacing: 16) {
-            if metrics.modelCalls > 0 {
+            if appState.showAdvancedFeatures && metrics.modelCalls > 0 {
                 metricItem(icon: "brain", label: "Model", value: "\(metrics.modelCalls)")
             }
 
             if metrics.toolCalls > 0 {
-                metricItem(icon: "wrench", label: "Tools", value: "\(metrics.toolCalls)")
+                metricItem(icon: "wrench", label: "Actions", value: "\(metrics.toolCalls)")
             }
 
-            if metrics.totalTokens > 0 {
+            if appState.showAdvancedFeatures && metrics.totalTokens > 0 {
                 metricItem(icon: "number", label: "Tokens", value: "\(metrics.totalTokens)")
             }
 
-            metricItem(icon: "clock", label: "Latency", value: "\(String(format: "%.1f", metrics.totalLatency))s")
+            metricItem(icon: "clock", label: "Response time", value: "\(String(format: "%.1f", metrics.totalLatency))s")
 
             if !statusMessage.isEmpty {
                 Spacer()

@@ -1,5 +1,4 @@
 import Foundation
-import MCP
 
 /// The core agent actor — the primary building block of SBBender.
 ///
@@ -12,17 +11,23 @@ public actor Agent {
     public let configuration: AgentConfiguration
     public let model: any ModelProvider
 
-    private var toolRegistry: ToolRegistry
+    package var toolRegistry: ToolRegistry
     private var nativeTools: [any NativeTool]
     private var skills: [Skill]
     private var storage: (any StorageBackend)?
     private var knowledge: (any KnowledgeSource)?
     private var learning: LearningEngine?
-    private var mcpManager: MCPManager?
     private var sessionID: String
     private var sessionState: [String: String]
     private var chatHistory: [Message]
     private var isCancelled: Bool = false
+
+    /// Type-erased MCP manager reference, set by the SBBender target's Agent+MCP extension.
+    package var _mcpManager: (any Sendable)?
+
+    /// Hook for external tool providers (e.g., MCP). Called during `run()` to register tools.
+    /// Set by the SBBender target's Agent+MCP extension.
+    package var _externalToolProvider: (@Sendable () async -> [Tool])?
 
     /// Pending tool confirmations: callID → continuation
     private var pendingConfirmations: [String: CheckedContinuation<Bool, Never>] = [:]
@@ -42,7 +47,6 @@ public actor Agent {
         storage: (any StorageBackend)? = nil,
         knowledge: (any KnowledgeSource)? = nil,
         learning: LearningEngine? = nil,
-        mcpManager: MCPManager? = nil,
         sessionID: String = UUID().uuidString,
         sessionState: [String: String] = [:]
     ) {
@@ -64,7 +68,6 @@ public actor Agent {
         self.storage = storage
         self.knowledge = knowledge
         self.learning = learning
-        self.mcpManager = mcpManager
         self.sessionID = sessionID
         self.sessionState = sessionState
         self.chatHistory = []
@@ -141,10 +144,10 @@ public actor Agent {
             }
         }
 
-        // 1b. Register MCP tools if connected
-        if let mcpManager {
-            let mcpTools = await mcpManager.allTools()
-            for tool in mcpTools {
+        // 1b. Register external tools (e.g., MCP) if a provider is configured
+        if let provider = _externalToolProvider {
+            let externalTools = await provider()
+            for tool in externalTools {
                 toolRegistry.register(tool)
             }
         }
@@ -502,49 +505,6 @@ public actor Agent {
     public func addNativeTool(_ nativeTool: any NativeTool) {
         nativeTools.append(nativeTool)
         toolRegistry.register(nativeTool.asTool())
-    }
-
-    /// Connect to an MCP server and register its tools.
-    public func connectMCP(
-        name: String,
-        command: String,
-        args: [String] = [],
-        environment: [String: String]? = nil
-    ) async throws {
-        let manager: MCPManager
-        if let existing = mcpManager {
-            manager = existing
-        } else {
-            let m = MCPManager()
-            mcpManager = m
-            manager = m
-        }
-
-        try await manager.connect(name: name, command: command, args: args, environment: environment)
-
-        let mcpTools = await manager.tools(for: name)
-        for tool in mcpTools {
-            toolRegistry.register(tool)
-        }
-    }
-
-    /// Connect to an MCP server via an existing transport (for testing or custom transports).
-    public func connectMCP(name: String, transport: any MCP.Transport) async throws {
-        let manager: MCPManager
-        if let existing = mcpManager {
-            manager = existing
-        } else {
-            let m = MCPManager()
-            mcpManager = m
-            manager = m
-        }
-
-        try await manager.connect(name: name, transport: transport)
-
-        let mcpTools = await manager.tools(for: name)
-        for tool in mcpTools {
-            toolRegistry.register(tool)
-        }
     }
 
     // MARK: - Private Helpers

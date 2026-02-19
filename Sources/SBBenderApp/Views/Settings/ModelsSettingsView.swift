@@ -59,7 +59,7 @@ struct ModelsSettingsView: View {
                     Text("\(hw.totalRAMGB) GB")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("GPU \(String(format: "%.0f", hw.gpuMemoryGB)) GB")
+                    Text("Graphics: \(String(format: "%.0f", hw.gpuMemoryGB)) GB")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -157,12 +157,12 @@ struct ModelsSettingsView: View {
                 }
             }
 
-            // HuggingFace search (power user)
-            settingsSection("Search HuggingFace") {
-                DisclosureGroup("Find more MLX models", isExpanded: $showHFSearch) {
+            // Model search (power user)
+            settingsSection("Find More Models") {
+                DisclosureGroup("Browse available models", isExpanded: $showHFSearch) {
                     VStack(spacing: 8) {
                         HStack {
-                            TextField("Search MLX models...", text: $mlxSearchQuery)
+                            TextField("Search models...", text: $mlxSearchQuery)
                                 .textFieldStyle(.roundedBorder)
                                 .onSubmit {
                                     Task { await appState.modelRegistry.searchMLXHub(query: mlxSearchQuery) }
@@ -208,7 +208,7 @@ struct ModelsSettingsView: View {
                             .font(.caption2)
                             .foregroundStyle(.yellow)
                     }
-                    Text(model.parameterSize)
+                    Text(friendlyParamSize(model.parameterSize))
                         .font(.caption2.weight(.medium))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -291,9 +291,11 @@ struct ModelsSettingsView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(shortName)
                     .font(.body.weight(.medium))
-                Text(modelID)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if appState.showAdvancedFeatures {
+                    Text(modelID)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer()
             Image(systemName: "checkmark.circle.fill")
@@ -357,7 +359,7 @@ struct ModelsSettingsView: View {
     // MARK: - Ollama Section
 
     private var ollamaSection: some View {
-        settingsSection("Ollama") {
+        settingsSection("External AI Server (Ollama)") {
             HStack(spacing: 8) {
                 Image(systemName: appState.modelRegistry.ollamaAvailable ? "circle.fill" : "circle")
                     .foregroundStyle(appState.modelRegistry.ollamaAvailable ? .green : .red)
@@ -502,7 +504,7 @@ struct ModelsSettingsView: View {
                 }
             }
             HStack(spacing: 6) {
-                SecureField("API Key", text: key)
+                SecureField("Access Key", text: key)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
                 Button("Save") { onSave() }
@@ -536,11 +538,20 @@ struct ModelsSettingsView: View {
     private func loadRecommendedModels() async {
         loadingRecommended = true
         do {
-            recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo)
+            recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo.modelTier)
         } catch {
             recommendedModels = []
         }
         loadingRecommended = false
+    }
+
+    private func friendlyParamSize(_ size: String) -> String {
+        let s = size.lowercased().replacingOccurrences(of: "b", with: "")
+        guard let num = Float(s) else { return size }
+        if num <= 4 { return "Small" }
+        if num <= 8 { return "Medium" }
+        if num <= 14 { return "Large" }
+        return "Very Large"
     }
 
     private func formatDownloads(_ count: Int) -> String {

@@ -216,9 +216,11 @@ struct RealWorldTests {
             model: MockProvider(
                 responses: ["15 + 27 = 42, and 6 * 7 = 42. Both are 42!"],
                 toolCallResponses: [([addCall, mulCall], "")]
-            ),
-            mcpManager: mcpManager
+            )
         )
+        for tool in await mcpManager.allTools() {
+            await agent.addTool(tool)
+        }
 
         let result = try await agent.run("Calculate 15+27 and 6*7")
         #expect(result.status == .completed)
@@ -285,9 +287,11 @@ struct RealWorldTests {
             model: MockProvider(
                 responses: ["100 + 200 = 300."],
                 toolCallResponses: [([addCall], "")]
-            ),
-            mcpManager: mcpManager
+            )
         )
+        for tool in await mcpManager.allTools() {
+            await mcpAgent.addTool(tool)
+        }
 
         // ── Agent 3: Real shell execution ──
         let shellCall = ToolCall(

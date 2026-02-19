@@ -31,7 +31,7 @@ struct ToolBuilderSheet: View {
                     .font(.title2)
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading) {
-                    Text(isEditing ? "Edit Tool" : "New Tool")
+                    Text(isEditing ? "Edit Action" : "New Action")
                         .font(.title2.bold())
                     if !name.isEmpty {
                         Text(name)
@@ -53,8 +53,7 @@ struct ToolBuilderSheet: View {
 
             Form {
                 Section("Definition") {
-                    TextField("Tool Name (snake_case)", text: $name)
-                        .font(.system(.body, design: .monospaced))
+                    TextField("Action Name", text: $name)
                     TextField("Description", text: $toolDescription)
                 }
 
@@ -83,11 +82,13 @@ struct ToolBuilderSheet: View {
                     Toggle("Requires user confirmation before execution", isOn: $requiresConfirmation)
                 }
 
-                Section("JSON Schema Preview") {
-                    Text(JSONSchemaEditor.previewJSON(from: parameters))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                if appState.showAdvancedFeatures {
+                    Section("JSON Schema Preview") {
+                        Text(JSONSchemaEditor.previewJSON(from: parameters))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .formStyle(.grouped)

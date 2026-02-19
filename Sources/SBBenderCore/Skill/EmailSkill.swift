@@ -44,7 +44,8 @@ public struct EmailSkill: NativeTool {
         return Tool(
             name: name,
             description: description,
-            parameters: toolParameters
+            parameters: toolParameters,
+            requiresConfirmation: true
         ) { arguments, _ in
             struct Args: Decodable {
                 let input: String

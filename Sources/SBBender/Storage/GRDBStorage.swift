@@ -89,6 +89,26 @@ public actor GRDBStorage: StorageBackend {
             }
         }
 
+        migrator.registerMigration("v3_knowledge_chunks") { db in
+            try db.create(table: "document_chunks", ifNotExists: true) { t in
+                t.primaryKey("id", .text).notNull()
+                t.column("agentID", .text).notNull().indexed()
+                t.column("content", .text).notNull()
+                t.column("sourceID", .text).notNull()
+                t.column("sourceTitle", .text).notNull()
+                t.column("chunkIndex", .integer).notNull()
+                t.column("metadataJSON", .text).notNull().defaults(to: "{}")
+            }
+
+            try db.create(table: "hnsw_graphs", ifNotExists: true) { t in
+                t.primaryKey("agentID", .text).notNull()
+                t.column("offsets", .blob).notNull()
+                t.column("neighbors", .blob).notNull()
+                t.column("nodeCount", .integer).notNull()
+                t.column("updatedAt", .double).notNull()
+            }
+        }
+
         try migrator.migrate(dbWriter)
         Log.storage.info("Database migration completed")
     }
@@ -327,6 +347,129 @@ public actor GRDBStorage: StorageBackend {
 
     // MARK: - Helpers
 
+    /// Serialize [Int] to Data using zero-copy buffer.
+    private static func serializeIntArray(_ array: [Int]) -> Data {
+        array.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    /// Deserialize Data back to [Int].
+    private static func deserializeIntArray(_ data: Data) -> [Int] {
+        guard data.count % MemoryLayout<Int>.stride == 0 else {
+            Log.storage.error("HNSW blob size \(data.count) is not a multiple of Int stride; returning empty")
+            return []
+        }
+        let count = data.count / MemoryLayout<Int>.stride
+        return data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress else { return [] }
+            let bound = base.assumingMemoryBound(to: Int.self)
+            return Array(UnsafeBufferPointer(start: bound, count: count))
+        }
+    }
+
+    // MARK: - Document Chunks & HNSW Graph
+
+    func saveDocumentChunks(_ chunks: [DocumentChunk], agentID: String) async throws {
+        try await dbWriter.write { db in
+            // Clear existing chunks for this agent
+            try db.execute(sql: "DELETE FROM document_chunks WHERE agentID = ?", arguments: [agentID])
+
+            let encoder = JSONEncoder()
+            for chunk in chunks {
+                let metadataJSON = String(data: try encoder.encode(chunk.metadata), encoding: .utf8) ?? "{}"
+                try db.execute(
+                    sql: """
+                    INSERT INTO document_chunks (id, agentID, content, sourceID, sourceTitle, chunkIndex, metadataJSON)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        chunk.id,
+                        agentID,
+                        chunk.content,
+                        chunk.sourceID,
+                        chunk.sourceTitle,
+                        chunk.chunkIndex,
+                        metadataJSON,
+                    ]
+                )
+            }
+        }
+    }
+
+    func loadDocumentChunks(agentID: String) async throws -> [DocumentChunk] {
+        try await dbWriter.read { db in
+            let decoder = JSONDecoder()
+            return try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM document_chunks WHERE agentID = ? ORDER BY chunkIndex",
+                arguments: [agentID]
+            ).map { row in
+                let metadataJSON: String = row["metadataJSON"]
+                let metadata = (try? decoder.decode([String: String].self, from: Data(metadataJSON.utf8))) ?? [:]
+                return DocumentChunk(
+                    id: row["id"],
+                    content: row["content"],
+                    sourceID: row["sourceID"],
+                    sourceTitle: row["sourceTitle"],
+                    chunkIndex: row["chunkIndex"],
+                    metadata: metadata
+                )
+            }
+        }
+    }
+
+    func saveHNSWGraph(agentID: String, offsets: [Int], neighbors: [Int], nodeCount: Int) async throws {
+        let offsetsData = Self.serializeIntArray(offsets)
+        let neighborsData = Self.serializeIntArray(neighbors)
+
+        try await dbWriter.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO hnsw_graphs (agentID, offsets, neighbors, nodeCount, updatedAt)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(agentID) DO UPDATE SET
+                    offsets = excluded.offsets,
+                    neighbors = excluded.neighbors,
+                    nodeCount = excluded.nodeCount,
+                    updatedAt = excluded.updatedAt
+                """,
+                arguments: [
+                    agentID,
+                    offsetsData,
+                    neighborsData,
+                    nodeCount,
+                    Date().timeIntervalSinceReferenceDate,
+                ]
+            )
+        }
+    }
+
+    func loadHNSWGraph(agentID: String) async throws -> (offsets: [Int], neighbors: [Int], nodeCount: Int)? {
+        try await dbWriter.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT * FROM hnsw_graphs WHERE agentID = ?",
+                arguments: [agentID]
+            ) else { return nil }
+
+            let offsetsData: Data = row["offsets"]
+            let neighborsData: Data = row["neighbors"]
+            let nodeCount: Int = row["nodeCount"]
+
+            return (
+                offsets: Self.deserializeIntArray(offsetsData),
+                neighbors: Self.deserializeIntArray(neighborsData),
+                nodeCount: nodeCount
+            )
+        }
+    }
+
+    func deleteKnowledgeIndex(agentID: String) async throws {
+        try await dbWriter.write { db in
+            try db.execute(sql: "DELETE FROM document_chunks WHERE agentID = ?", arguments: [agentID])
+            try db.execute(sql: "DELETE FROM hnsw_graphs WHERE agentID = ?", arguments: [agentID])
+        }
+    }
+
     private static func decodeSession(from row: Row) throws -> Session {
         let decoder = JSONDecoder()
         let messagesData: Data = row["messages"]
@@ -344,5 +487,29 @@ public actor GRDBStorage: StorageBackend {
             createdAt: Date(timeIntervalSinceReferenceDate: row["createdAt"]),
             updatedAt: Date(timeIntervalSinceReferenceDate: row["updatedAt"])
         )
+    }
+}
+
+// MARK: - KnowledgeIndexPersistence Conformance
+
+extension GRDBStorage: KnowledgeIndexPersistence {
+    public func saveChunks(_ chunks: [DocumentChunk], agentID: String) async throws {
+        try await saveDocumentChunks(chunks, agentID: agentID)
+    }
+
+    public func loadChunks(agentID: String) async throws -> [DocumentChunk] {
+        try await loadDocumentChunks(agentID: agentID)
+    }
+
+    public func saveGraph(agentID: String, offsets: [Int], neighbors: [Int], nodeCount: Int) async throws {
+        try await saveHNSWGraph(agentID: agentID, offsets: offsets, neighbors: neighbors, nodeCount: nodeCount)
+    }
+
+    public func loadGraph(agentID: String) async throws -> (offsets: [Int], neighbors: [Int], nodeCount: Int)? {
+        try await loadHNSWGraph(agentID: agentID)
+    }
+
+    public func deleteIndex(agentID: String) async throws {
+        try await deleteKnowledgeIndex(agentID: agentID)
     }
 }

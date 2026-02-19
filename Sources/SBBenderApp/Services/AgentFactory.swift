@@ -9,8 +9,7 @@ struct AgentFactory {
         customTools: [Tool] = [],
         storage: GRDBStorage? = nil,
         knowledge: (any KnowledgeSource)? = nil,
-        learning: LearningEngine? = nil,
-        mcpManager: MCPManager? = nil
+        learning: LearningEngine? = nil
     ) -> Agent {
         // Resolve instructions: load from file if set, otherwise use config text
         var instructions = config.instructions
@@ -55,7 +54,6 @@ struct AgentFactory {
             storage: storage,
             knowledge: knowledge,
             learning: learning,
-            mcpManager: mcpManager,
             sessionID: config.id
         )
     }

@@ -53,9 +53,9 @@ public final class VisionSkill: @unchecked Sendable, NativeTool {
         )
     }
 
-    public func asTool() -> Tool {
+    public func asTool() -> SBTool {
         let skill = self
-        return Tool(
+        return SBTool(
             name: name,
             description: description,
             parameters: toolParameters
@@ -119,6 +119,32 @@ public final class VisionSkill: @unchecked Sendable, NativeTool {
             confidence: 1.0,
             latency: CFAbsoluteTimeGetCurrent() - start
         )
+    }
+
+    /// Pre-download and load the vision model, reporting download progress.
+    ///
+    /// Call this during onboarding or setup to avoid a ~500MB silent download
+    /// when the user first requests image analysis.
+    ///
+    /// - Parameter progress: Callback receiving `Progress` updates during model download.
+    public func preload(progress: (@Sendable (Progress) -> Void)? = nil) async throws {
+        let mid = modelID
+        let task = Task<ModelContainer, Error> {
+            Log.skill.info("Preloading VLM model: \(mid)")
+            MLX.Memory.cacheLimit = 32 * 1024 * 1024
+            let config = ModelConfiguration(id: mid)
+            let container = try await VLMModelFactory.shared.loadContainer(
+                configuration: config,
+                progressHandler: progress ?? { _ in }
+            )
+            Log.skill.info("VLM model preloaded: \(mid)")
+            return container
+        }
+        let container = try await task.value
+        state.withLock { s in
+            s.container = container
+            s.loadTask = nil
+        }
     }
 
     private func loadModel() async throws -> ModelContainer {
