@@ -281,12 +281,14 @@ struct AgentTemplate: Identifiable {
     let emoji: String
     let gradientHex: [String]
     let description: String
+    let tagline: String?
     let skillIDs: [String]
     let instructions: String
     let temperature: Float
     let enableThinking: Bool
     let knowledgeEnabled: Bool
     let learningEnabled: Bool
+    let recommendedModelsByTier: [String: String]
 
     init(
         id: String,
@@ -294,24 +296,28 @@ struct AgentTemplate: Identifiable {
         emoji: String,
         gradientHex: [String],
         description: String,
+        tagline: String? = nil,
         skillIDs: [String],
         instructions: String,
         temperature: Float,
         enableThinking: Bool,
         knowledgeEnabled: Bool,
-        learningEnabled: Bool
+        learningEnabled: Bool,
+        recommendedModelsByTier: [String: String] = [:]
     ) {
         self.id = id
         self.name = name
         self.emoji = emoji
         self.gradientHex = gradientHex
         self.description = description
+        self.tagline = tagline
         self.skillIDs = skillIDs
         self.instructions = instructions
         self.temperature = temperature
         self.enableThinking = enableThinking
         self.knowledgeEnabled = knowledgeEnabled
         self.learningEnabled = learningEnabled
+        self.recommendedModelsByTier = recommendedModelsByTier
     }
 
     init(from entry: AgentTemplateEntry) {
@@ -320,12 +326,14 @@ struct AgentTemplate: Identifiable {
         self.emoji = entry.emoji
         self.gradientHex = entry.gradientHex
         self.description = entry.description
+        self.tagline = entry.tagline
         self.skillIDs = entry.skillIDs
         self.instructions = entry.instructions
         self.temperature = entry.temperature
         self.enableThinking = entry.enableThinking
         self.knowledgeEnabled = entry.knowledgeEnabled
         self.learningEnabled = entry.learningEnabled
+        self.recommendedModelsByTier = entry.recommendedModelsByTier
     }
 
     func toAgentConfig() -> AgentConfig {
