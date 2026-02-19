@@ -38,7 +38,7 @@ struct MLXModelPickerView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("No local models found in ~/.cache/huggingface/hub")
+                    Text("No AI models downloaded yet. Go to Settings to download one.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -55,7 +55,7 @@ struct MLXModelPickerView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search HuggingFace for MLX models...", text: $searchQuery)
+                TextField("Search for AI models...", text: $searchQuery)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
                     .onSubmit {

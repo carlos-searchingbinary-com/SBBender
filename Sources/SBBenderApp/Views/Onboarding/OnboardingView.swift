@@ -81,8 +81,8 @@ struct OnboardingView: View {
     private func stepLabel(_ s: OnboardingStep) -> String {
         switch s {
         case .welcome: "Welcome"
-        case .model: "Model"
-        case .templates: "Agents"
+        case .model: "AI"
+        case .templates: "Assistants"
         }
     }
 
@@ -154,10 +154,10 @@ struct OnboardingView: View {
 
     private var modelStep: some View {
         VStack(spacing: 20) {
-            Text("Choose a Model")
+            Text("Choose Your AI")
                 .font(.title2.bold())
 
-            Text("Select a local AI model optimized for your Mac.\nThe recommended model is pre-selected based on your hardware.")
+            Text("Pick the AI that powers your assistants.\nThe best option for your Mac is pre-selected.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -290,10 +290,10 @@ struct OnboardingView: View {
 
     private var templatesStep: some View {
         VStack(spacing: 20) {
-            Text("Pick Starter Agents")
+            Text("Pick Starter Assistants")
                 .font(.title2.bold())
 
-            Text("Choose one or more pre-configured agents to get started.\nYou can create more agents later.")
+            Text("Choose one or more pre-configured assistants to get started.\nYou can create more later.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -314,7 +314,7 @@ struct OnboardingView: View {
                     Image(systemName: "eye")
                         .foregroundStyle(.purple)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Downloading vision model...")
+                        Text("Preparing image recognition...")
                             .font(.caption.weight(.medium))
                         ProgressView(value: progress)
                             .frame(maxWidth: 200)
@@ -464,7 +464,7 @@ struct OnboardingView: View {
                     visionPreloadProgress = nil // no VisionSkill available
                 }
             } catch {
-                visionPreloadError = "Vision model download failed: \(error.localizedDescription)"
+                visionPreloadError = "Could not download image recognition — check your internet connection and try again."
                 visionPreloadProgress = nil
             }
         }

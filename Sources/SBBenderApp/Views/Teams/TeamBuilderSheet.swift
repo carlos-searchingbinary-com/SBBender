@@ -46,25 +46,25 @@ struct TeamBuilderSheet: View {
                     GradientPickerView(selectedHex: $gradientHex)
                 }
 
-                Section("Execution Mode") {
+                Section("How They Work Together") {
                     Picker("Mode", selection: $mode) {
-                        Text("Sequential").tag("sequential")
-                        Text("Parallel").tag("parallel")
-                        Text("Autonomous").tag("autonomous")
+                        Text("One at a time").tag("sequential")
+                        Text("All at once").tag("parallel")
+                        Text("Self-directed").tag("autonomous")
                     }
                     .pickerStyle(.segmented)
 
                     switch mode {
                     case "sequential":
-                        Text("Agents execute one after another, passing context forward.")
+                        Text("Assistants work one after another, passing context forward.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     case "parallel":
-                        Text("All agents execute simultaneously on the same input.")
+                        Text("All assistants work simultaneously on the same input.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     case "autonomous":
-                        Text("A leader agent decides which members to delegate to.")
+                        Text("A leader assistant decides which members to delegate to.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     default:
@@ -94,7 +94,7 @@ struct TeamBuilderSheet: View {
                     }
 
                     if appState.agents.isEmpty {
-                        Text("No agents created yet. Create agents first.")
+                        Text("No assistants created yet. Create an assistant first.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -102,7 +102,7 @@ struct TeamBuilderSheet: View {
 
                 if mode == "autonomous" {
                     Section("Leader") {
-                        Picker("Leader Agent", selection: Binding(
+                        Picker("Leader", selection: Binding(
                             get: { leaderID ?? "" },
                             set: { leaderID = $0.isEmpty ? nil : $0 }
                         )) {

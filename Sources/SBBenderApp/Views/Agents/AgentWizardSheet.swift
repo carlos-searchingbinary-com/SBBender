@@ -37,7 +37,7 @@ struct AgentWizardSheet: View {
             VStack(spacing: 16) {
                 // Description input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("What should this agent do?")
+                    Text("What should this assistant do?")
                         .font(.headline)
                     TextEditor(text: $userDescription)
                         .font(.body)
@@ -62,7 +62,7 @@ struct AgentWizardSheet: View {
                         } else {
                             Image(systemName: "sparkles")
                         }
-                        Text(isGenerating ? "Generating..." : "Generate Configuration")
+                        Text(isGenerating ? "Setting up..." : "Set Up Assistant")
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -86,7 +86,7 @@ struct AgentWizardSheet: View {
                 // Preview
                 if let preview = previewConfig {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Generated Configuration")
+                        Text("Your Assistant Setup")
                             .font(.headline)
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -122,7 +122,7 @@ struct AgentWizardSheet: View {
 
                             Spacer()
 
-                            Button("Use This Config") {
+                            Button("Use This Setup") {
                                 onConfigGenerated(preview)
                                 dismiss()
                             }

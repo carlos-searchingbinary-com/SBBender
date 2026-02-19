@@ -7,7 +7,7 @@ struct SettingsView: View {
 
     enum SettingsTab: String, CaseIterable {
         case models = "Models"
-        case mcpServers = "MCP Servers"
+        case mcpServers = "Plugins"
         case general = "General"
     }
 
@@ -63,7 +63,7 @@ private struct GeneralSettingsContent: View {
         Form {
             Section("Interface") {
                 Toggle("Advanced Features", isOn: $state.showAdvancedFeatures)
-                Text("Show Custom Tools, MCP Servers, and Skill Lab in the sidebar.")
+                Text("Show developer tools and plugin settings in the sidebar.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -73,7 +73,7 @@ private struct GeneralSettingsContent: View {
                 LabeledContent("Teams", value: "\(appState.teams.count)")
                 if appState.showAdvancedFeatures {
                     LabeledContent("Custom Tools", value: "\(appState.toolConfigs.count)")
-                    LabeledContent("MCP Servers", value: "\(appState.mcpServerConfigs.count)")
+                    LabeledContent("Plugins", value: "\(appState.mcpServerConfigs.count)")
                 }
 
                 Button("Clear All Data", role: .destructive) {

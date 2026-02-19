@@ -13,7 +13,7 @@ struct ToolConfirmationSheet: View {
                     .font(.system(size: 36))
                     .foregroundStyle(.orange)
 
-                Text("Tool Confirmation")
+                Text("Approve Action")
                     .font(.title3.bold())
 
                 Text("Your assistant wants to perform an action that requires your approval.")
@@ -43,9 +43,9 @@ struct ToolConfirmationSheet: View {
                             .fill(.orange.opacity(0.08))
                     )
 
-                    // Arguments
+                    // Details
                     if !confirmation.arguments.isEmpty {
-                        Text("Arguments")
+                        Text("Details")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.secondary)
 

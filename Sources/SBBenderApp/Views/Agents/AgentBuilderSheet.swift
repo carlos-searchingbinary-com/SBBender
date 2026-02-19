@@ -384,12 +384,14 @@ struct AgentBuilderSheet: View {
                     }
                 }
 
-                // Advanced
-                DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
-                    advancedSettingsContent
+                // Advanced (only for power users)
+                if appState.showAdvancedFeatures {
+                    DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+                        advancedSettingsContent
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
             }
             .padding(24)
         }
@@ -540,7 +542,7 @@ struct AgentBuilderSheet: View {
                 TextField(placeholder, text: $modelID)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                Text("Add your API key in Settings to load available models")
+                Text("Add your access key in Settings to load available models")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -720,7 +722,7 @@ struct AgentBuilderSheet: View {
     private var advancedSettingsContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Top P")
+                Text("Focus")
                     .font(.caption)
                 Spacer()
                 Text(String(format: "%.2f", topP))
@@ -730,7 +732,7 @@ struct AgentBuilderSheet: View {
             Slider(value: $topP, in: 0.0...1.0, step: 0.05)
 
             HStack {
-                Text("Repetition Penalty")
+                Text("Variety")
                     .font(.caption)
                 Spacer()
                 Text(String(format: "%.2f", repetitionPenalty))
@@ -739,9 +741,9 @@ struct AgentBuilderSheet: View {
             }
             Slider(value: $repetitionPenalty, in: 1.0...2.0, step: 0.05)
 
-            Stepper("Tool calls per turn: \(toolCallLimit)", value: $toolCallLimit, in: 1...100)
+            Stepper("Actions per step: \(toolCallLimit)", value: $toolCallLimit, in: 1...100)
                 .font(.caption)
-            Stepper("Max iterations: \(maxIterations)", value: $maxIterations, in: 1...50)
+            Stepper("Max steps: \(maxIterations)", value: $maxIterations, in: 1...50)
                 .font(.caption)
 
             Toggle("Markdown output", isOn: $markdownOutput)
@@ -793,7 +795,7 @@ struct AgentBuilderSheet: View {
                 FeatureToggleRow(
                     icon: "book.closed.fill", color: .blue,
                     title: "Knowledge Base",
-                    subtitle: "Feed documents and files for the agent to reference",
+                    subtitle: "Feed documents and files for the assistant to reference",
                     isOn: $knowledgeEnabled
                 )
 
@@ -882,12 +884,14 @@ struct AgentBuilderSheet: View {
 
             Divider()
 
-            // Advanced (collapsed by default)
-            DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
-                advancedSettingsContent
+            // Advanced (collapsed by default, only for power users)
+            if appState.showAdvancedFeatures {
+                DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+                    advancedSettingsContent
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
             }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.secondary)
         }
     }
 

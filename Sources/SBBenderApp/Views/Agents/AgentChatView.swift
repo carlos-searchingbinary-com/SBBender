@@ -241,11 +241,11 @@ struct AgentChatView: View {
                     }
                     if case .embedding(let current, let total) = viewModel.rehydrationProgress {
                         ProgressView(value: Double(current), total: Double(max(total, 1)))
-                        Text("Embedding \(current)/\(total) chunks")
+                        Text("Analyzing \(current) of \(total) sections...")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else if case .buildingIndex = viewModel.rehydrationProgress {
-                        Text("Building search index...")
+                        Text("Making documents searchable...")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -255,7 +255,7 @@ struct AgentChatView: View {
                     .foregroundStyle(.green)
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(knowledgeDocCount) document\(knowledgeDocCount == 1 ? "" : "s"), \(knowledgeChunkCount) chunks ready")
+                    Text("\(knowledgeDocCount) document\(knowledgeDocCount == 1 ? "" : "s"), \(knowledgeChunkCount) sections ready")
                         .font(.subheadline.weight(.medium))
                     Text("Knowledge base is loaded and searchable")
                         .font(.caption)
@@ -268,7 +268,7 @@ struct AgentChatView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("No documents loaded")
                         .font(.subheadline.weight(.medium))
-                    Text("Drop documents in Knowledge settings to get started")
+                    Text("Add documents in this assistant's settings to get started")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -585,8 +585,8 @@ struct AgentChatView: View {
         ScrollView {
             if let config {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Model
-                    infoSection(title: "Model", icon: "cpu") {
+                    // AI Engine
+                    infoSection(title: "AI Engine", icon: "cpu") {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(ProviderType(rawValue: config.providerType)?.displayName ?? config.providerType)
                                 .font(.subheadline.weight(.medium))
@@ -764,37 +764,37 @@ struct AgentChatView: View {
         }
     }
 
+    @ViewBuilder
     private var toolOutputSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Tool Outputs")
-                .font(.subheadline.bold())
-                .padding(12)
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(viewModel.toolOutputEntries, id: \.callID) { entry in
-                        DisclosureGroup {
-                            Text(entry.fullOutput)
-                                .font(.system(.caption2, design: .monospaced))
-                                .textSelection(.enabled)
-                                .padding(6)
-                        } label: {
-                            HStack {
-                                Image(systemName: "wrench.fill")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                                Text(entry.toolName)
-                                    .font(.caption.bold())
-                                Spacer()
-                                Text("\(entry.characterCount) chars")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+        if appState.showAdvancedFeatures {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Action Results")
+                    .font(.subheadline.bold())
+                    .padding(12)
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(viewModel.toolOutputEntries, id: \.callID) { entry in
+                            DisclosureGroup {
+                                Text(entry.fullOutput)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .padding(6)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "wrench.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                    Text(entry.toolName)
+                                        .font(.caption.bold())
+                                    Spacer()
+                                }
                             }
+                            .padding(.horizontal, 12)
                         }
-                        .padding(.horizontal, 12)
                     }
                 }
+                .frame(maxHeight: 200)
             }
-            .frame(maxHeight: 200)
         }
     }
 
@@ -1003,8 +1003,24 @@ struct AgentChatView: View {
 
     private func modelLabel(_ config: AgentConfig) -> String {
         let provider = ProviderType(rawValue: config.providerType)?.displayName ?? config.providerType
-        let model = config.modelID.components(separatedBy: "/").last ?? config.modelID
+        let model = friendlyModelName(config.modelID)
         return "\(provider) \u{2022} \(model)"
+    }
+
+    private func friendlyModelName(_ modelID: String) -> String {
+        let short = modelID.components(separatedBy: "/").last ?? modelID
+        // Map known model patterns to friendly names
+        let lower = short.lowercased()
+        if lower.contains("qwen3-4b") || lower.contains("qwen3-1.7b") { return "Small & Fast" }
+        if lower.contains("qwen3-8b") { return "Balanced" }
+        if lower.contains("qwen3-14b") || lower.contains("qwen3-30b") { return "Powerful" }
+        if lower.contains("qwen3-32b") || lower.contains("qwen3-70b") { return "Very Powerful" }
+        // Strip quantization suffixes for other models
+        return short
+            .replacingOccurrences(of: "-4bit", with: "")
+            .replacingOccurrences(of: "-8bit", with: "")
+            .replacingOccurrences(of: "-4-bit", with: "")
+            .replacingOccurrences(of: "-8-bit", with: "")
     }
 
     private func friendlyCreativity(_ t: Float) -> String {
@@ -1148,8 +1164,8 @@ struct ThinkingBubble: View {
 
     private var stageHint: String? {
         if elapsed < 3 { return "Starting up..." }
-        if elapsed < 15 && status == .thinking { return "Loading model..." }
-        if elapsed >= 15 && status == .thinking { return "Generating response..." }
+        if elapsed < 15 && status == .thinking { return "Warming up..." }
+        if elapsed >= 15 && status == .thinking { return "Writing reply..." }
         return nil
     }
 

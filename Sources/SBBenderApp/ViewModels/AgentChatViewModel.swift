@@ -9,6 +9,22 @@ struct SessionSummary: Identifiable {
     let updatedAt: Date
 }
 
+/// Information about a pending tool confirmation request.
+struct ToolConfirmationInfo: Identifiable {
+    let id: String
+    let toolName: String
+    let arguments: [String: String]
+    let agent: Agent
+
+    func approve() async {
+        await agent.approveToolCall(id: id)
+    }
+
+    func deny() async {
+        await agent.rejectToolCall(id: id)
+    }
+}
+
 @MainActor
 @Observable
 final class AgentChatViewModel {
@@ -21,6 +37,13 @@ final class AgentChatViewModel {
     var toolOutputEntries: [ToolOutputEntry] = []
     var activityEvents: [ActivityEvent] = []
     var elapsedSeconds: Int = 0
+
+    // Tool confirmation
+    var pendingConfirmation: ToolConfirmationInfo?
+
+    // Knowledge rehydration
+    var isRehydrating: Bool = false
+    var rehydrationProgress: IngestionProgress.Phase?
 
     // Session management
     var currentSessionID: String?
@@ -101,13 +124,25 @@ final class AgentChatViewModel {
                             kind: .toolCallError(name: name, error: error),
                             agentName: agentName
                         ))
-                    case .toolConfirmationRequired(let name, let id, _):
-                        // Auto-approve for now; UI confirmation dialog can be added later
+                    case .toolConfirmationRequired(let name, let id, let argsJSON):
+                        // Parse arguments for display
+                        var displayArgs: [String: String] = [:]
+                        if let data = argsJSON.data(using: .utf8),
+                           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            for (key, value) in dict {
+                                displayArgs[key] = "\(value)"
+                            }
+                        }
+                        self.pendingConfirmation = ToolConfirmationInfo(
+                            id: id,
+                            toolName: name,
+                            arguments: displayArgs,
+                            agent: agent
+                        )
                         activityEvents.append(ActivityEvent(
-                            kind: .toolCallStarted(name: "\(name) (confirmed)"),
+                            kind: .toolCallStarted(name: "\(name) (needs approval)"),
                             agentName: agentName
                         ))
-                        await agent.approveToolCall(id: id)
                     case .modelRequestStarted:
                         status = .thinking
                     case .modelRequestCompleted:
@@ -149,7 +184,7 @@ final class AgentChatViewModel {
                         ))
                         status = .done
                         if tools > 0 {
-                            statusMessage = "\(tools) tool call(s), \(String(format: "%.1f", latency))s"
+                            statusMessage = "\(tools) action\(tools == 1 ? "" : "s"), \(String(format: "%.1f", latency))s"
                         } else {
                             statusMessage = "\(String(format: "%.1f", latency))s"
                         }
