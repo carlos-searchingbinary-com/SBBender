@@ -220,7 +220,16 @@ struct OnboardingView: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.blue)
+                            .font(.title3)
                     }
+                }
+
+                if let tagline = template.tagline {
+                    Text("\"\(tagline)\"")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .italic()
+                        .lineLimit(2)
                 }
 
                 Text(template.name)
@@ -231,16 +240,6 @@ struct OnboardingView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-
-                // Skill count
-                if !template.skillIDs.isEmpty {
-                    Text("\(template.skillIDs.count) capabilities")
-                        .font(.system(size: 9, weight: .medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.blue.opacity(0.08)))
-                        .foregroundStyle(.blue)
-                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
