@@ -181,7 +181,7 @@ struct OnboardingView: View {
     // MARK: - Templates Step
 
     private var templatesStep: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             VStack(spacing: 6) {
                 Text("What do you want help with?")
                     .font(.title2.bold())
@@ -191,20 +191,18 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
             }
 
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 14)],
-                    spacing: 14
-                ) {
-                    ForEach(appState.agentTemplates) { template in
-                        templateCard(template)
-                    }
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4),
+                spacing: 14
+            ) {
+                ForEach(appState.agentTemplates) { template in
+                    templateCard(template)
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 4)
             }
+            .padding(.horizontal, 32)
         }
         .padding(.top, 8)
+        .padding(.bottom, 8)
     }
 
     private func templateCard(_ template: AgentTemplate) -> some View {
@@ -219,60 +217,69 @@ struct OnboardingView: View {
                 selectedTemplateIDs.insert(template.id)
             }
         } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top) {
-                    AgentAvatar(emoji: template.emoji, gradientHex: template.gradientHex, size: 48)
+            ZStack(alignment: .bottomLeading) {
+                // Full gradient background
+                LinearGradient(
+                    colors: gradientColors,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                // Bottom scrim for text legibility
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.45)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
+                // Content
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top) {
+                        Text(template.emoji)
+                            .font(.system(size: 38))
+                            .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.white)
+                                .background(Circle().fill(.white.opacity(0.25)).padding(-4))
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+
                     Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.white, Color.accentColor)
-                            .transition(.scale.combined(with: .opacity))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(template.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+
+                        if let tagline = template.tagline {
+                            Text(tagline)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.78))
+                                .lineLimit(2)
+                        }
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(template.name)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    if let tagline = template.tagline {
-                        Text("\u{201C}\(tagline)\u{201D}")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .italic()
-                            .lineLimit(2)
-                    }
-                }
+                .padding(14)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            .background {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(
-                                LinearGradient(
-                                    colors: gradientColors.map { $0.opacity(isSelected ? 0.14 : 0.07) },
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
-            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(
-                        isSelected
-                            ? LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                            : LinearGradient(colors: [Color.primary.opacity(isHovered ? 0.15 : 0.07)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                        lineWidth: isSelected ? 2 : 1
+                        isSelected ? .white.opacity(0.9) : .white.opacity(isHovered ? 0.25 : 0),
+                        lineWidth: isSelected ? 2.5 : 1.5
                     )
             }
-            .animation(.easeInOut(duration: 0.15), value: isSelected)
-            .animation(.easeInOut(duration: 0.1), value: isHovered)
+            .scaleEffect(isHovered && !isSelected ? 1.02 : 1.0)
+            .brightness(isSelected ? 0.06 : 0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isSelected)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { hoveredTemplateID = $0 ? template.id : nil }
