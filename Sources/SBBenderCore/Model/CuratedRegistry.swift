@@ -62,12 +62,31 @@ public struct AgentTemplateEntry: Sendable, Codable, Identifiable, Equatable {
     public let emoji: String
     public let gradientHex: [String]
     public let description: String
+    public let tagline: String?
     public let skillIDs: [String]
     public let instructions: String
     public let temperature: Float
     public let enableThinking: Bool
     public let knowledgeEnabled: Bool
     public let learningEnabled: Bool
+    public let recommendedModelsByTier: [String: String]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        emoji = try c.decode(String.self, forKey: .emoji)
+        gradientHex = try c.decode([String].self, forKey: .gradientHex)
+        description = try c.decode(String.self, forKey: .description)
+        tagline = try c.decodeIfPresent(String.self, forKey: .tagline)
+        skillIDs = try c.decode([String].self, forKey: .skillIDs)
+        instructions = try c.decode(String.self, forKey: .instructions)
+        temperature = try c.decode(Float.self, forKey: .temperature)
+        enableThinking = try c.decode(Bool.self, forKey: .enableThinking)
+        knowledgeEnabled = try c.decode(Bool.self, forKey: .knowledgeEnabled)
+        learningEnabled = try c.decode(Bool.self, forKey: .learningEnabled)
+        recommendedModelsByTier = try c.decodeIfPresent([String: String].self, forKey: .recommendedModelsByTier) ?? [:]
+    }
 }
 
 /// A pre-configured bundle combining model, skills, MCP servers, and tools.
