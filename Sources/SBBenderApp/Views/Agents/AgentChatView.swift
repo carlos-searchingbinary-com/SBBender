@@ -139,7 +139,7 @@ struct AgentChatView: View {
                 if appState.showAdvancedFeatures && !config.mcpServerIDs.isEmpty {
                     compactBadge(
                         "\(config.mcpServerIDs.count)",
-                        icon: "server.rack",
+                        icon: "puzzlepiece.extension",
                         color: .green
                     )
                 }
@@ -323,7 +323,7 @@ struct AgentChatView: View {
                     if appState.showAdvancedFeatures && !mcpNames.isEmpty {
                         capabilitySection(
                             title: "Plugins",
-                            icon: "server.rack",
+                            icon: "puzzlepiece.extension",
                             color: .green
                         ) {
                             FlowLayout(spacing: 5) {
@@ -629,7 +629,7 @@ struct AgentChatView: View {
                     // Plugins (MCP — gated)
                     let mcpNames = resolvedMCPNames(config)
                     if appState.showAdvancedFeatures && !mcpNames.isEmpty {
-                        infoSection(title: "Plugins (\(mcpNames.count))", icon: "server.rack") {
+                        infoSection(title: "Plugins (\(mcpNames.count))", icon: "puzzlepiece.extension") {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(mcpNames, id: \.self) { name in
                                     HStack(spacing: 5) {
@@ -647,7 +647,7 @@ struct AgentChatView: View {
                     // Custom Tools (gated)
                     let toolNames = resolvedToolNames(config)
                     if appState.showAdvancedFeatures && !toolNames.isEmpty {
-                        infoSection(title: "Custom Tools (\(toolNames.count))", icon: "wrench") {
+                        infoSection(title: "Custom Actions (\(toolNames.count))", icon: "wrench") {
                             FlowLayout(spacing: 4) {
                                 ForEach(toolNames, id: \.self) { name in
                                     Text(name)
@@ -1087,7 +1087,7 @@ struct AgentChatView: View {
             features.append(FeatureInfo(label: "Markdown", icon: "text.badge.checkmark", color: .teal))
         }
         if !config.attachedSkillIDs.isEmpty {
-            features.append(FeatureInfo(label: "\(config.attachedSkillIDs.count) Behaviors", icon: "doc.text", color: .mint))
+            features.append(FeatureInfo(label: "\(config.attachedSkillIDs.count) Instructions", icon: "doc.text", color: .mint))
         }
         return features
     }

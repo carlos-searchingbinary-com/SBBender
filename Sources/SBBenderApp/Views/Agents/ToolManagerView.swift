@@ -9,9 +9,9 @@ struct ToolManagerView: View {
         VStack(spacing: 0) {
             if appState.toolConfigs.isEmpty {
                 ContentUnavailableView(
-                    "No Custom Tools",
+                    "No Custom Actions",
                     systemImage: "wrench.and.screwdriver",
-                    description: Text("Create custom tools that agents can use. Tools can execute shell commands, HTTP requests, or AppleScript.")
+                    description: Text("Create custom actions that your assistants can perform — like running shell commands, calling APIs, or executing AppleScript.")
                 )
             } else {
                 List {
@@ -20,7 +20,7 @@ struct ToolManagerView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 6) {
                                     Text(tool.name)
-                                        .font(.system(.body, design: .monospaced).bold())
+                                        .font(.body.bold())
                                     Text(tool.executionType)
                                         .font(.caption2)
                                         .padding(.horizontal, 6)
@@ -32,7 +32,7 @@ struct ToolManagerView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 if !tool.parameters.isEmpty {
-                                    Text("Params: \(tool.parameters.map(\.name).joined(separator: ", "))")
+                                    Text("Inputs: \(tool.parameters.map(\.name).joined(separator: ", "))")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }
@@ -62,7 +62,7 @@ struct ToolManagerView: View {
                 }
             }
         }
-        .navigationTitle("Custom Tools")
+        .navigationTitle("Custom Actions")
         .toolbar {
             ToolbarItem {
                 Button {
@@ -71,7 +71,8 @@ struct ToolManagerView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("New Tool")
+                .help("New Action")
+                .accessibilityLabel("Add Custom Action")
             }
         }
         .sheet(isPresented: $showToolBuilder) {

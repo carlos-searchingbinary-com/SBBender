@@ -187,7 +187,7 @@ struct AgentBuilderSheet: View {
                         Label("Memory", systemImage: "brain")
                     }
                     if !mcpServerIDs.isEmpty {
-                        Label("\(mcpServerIDs.count) plugins", systemImage: "server.rack")
+                        Label("\(mcpServerIDs.count) plugins", systemImage: "puzzlepiece.extension")
                     }
                 }
                 .font(.caption)
@@ -663,7 +663,7 @@ struct AgentBuilderSheet: View {
             // MCP summary
             let serverConfigs = appState.mcpServerConfigs.filter { mcpServerIDs.contains($0.id) }
             HStack {
-                Image(systemName: "server.rack")
+                Image(systemName: "puzzlepiece.extension")
                     .foregroundStyle(.orange)
                     .frame(width: 28)
                 VStack(alignment: .leading) {

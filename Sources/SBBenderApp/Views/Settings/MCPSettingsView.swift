@@ -94,10 +94,10 @@ struct MCPSettingsView: View {
 
             if appState.mcpServerConfigs.isEmpty {
                 HStack(spacing: 8) {
-                    Image(systemName: "server.rack")
+                    Image(systemName: "puzzlepiece.extension")
                         .foregroundStyle(.secondary)
                         .font(.caption)
-                    Text("No custom servers. Add one above or use a recommended server.")
+                    Text("No plugins configured. Add one above or use a recommended plugin.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

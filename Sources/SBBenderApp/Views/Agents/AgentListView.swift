@@ -283,7 +283,7 @@ private struct AgentCard: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("All tools enabled")
+                    Text("All capabilities enabled")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -291,7 +291,7 @@ private struct AgentCard: View {
                 // Feature badges
                 HStack(spacing: 8) {
                     if !config.attachedSkillIDs.isEmpty {
-                        FeaturePill(icon: "doc.text", text: "\(config.attachedSkillIDs.count) Behaviors", color: .indigo)
+                        FeaturePill(icon: "doc.text", text: "\(config.attachedSkillIDs.count) Instructions", color: .indigo)
                     }
                     if config.knowledgeEnabled {
                         FeaturePill(icon: "book.closed.fill", text: "Knowledge", color: .blue)
@@ -300,10 +300,10 @@ private struct AgentCard: View {
                         FeaturePill(icon: "brain", text: "Memory", color: .purple)
                     }
                     if !config.mcpServerIDs.isEmpty {
-                        FeaturePill(icon: "server.rack", text: "\(config.mcpServerIDs.count) Plugins", color: .orange)
+                        FeaturePill(icon: "puzzlepiece.extension", text: "\(config.mcpServerIDs.count) Plugins", color: .orange)
                     }
                     if !config.customToolIDs.isEmpty {
-                        FeaturePill(icon: "wrench.fill", text: "\(config.customToolIDs.count) Tools", color: .green)
+                        FeaturePill(icon: "wrench.fill", text: "\(config.customToolIDs.count) Actions", color: .green)
                     }
                     if config.enableThinking {
                         FeaturePill(icon: "lightbulb.fill", text: "Deep Reasoning", color: .yellow)
