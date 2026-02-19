@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.searchingbinary.SBBender</string>
+	<key>CFBundleName</key>
+	<string>SBBender</string>
+	<key>CFBundleDisplayName</key>
+	<string>SBBender</string>
+	<key>CFBundleExecutable</key>
+	<string>SBBenderApp</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Searching Binary. All rights reserved.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<!-- Sparkle Auto-Update -->
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/carlos-searchingbinary-com/SBBender/main/appcast.xml</string>
+
+	<!-- Privacy Usage Descriptions -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>SBBender uses screen capture to provide visual context to AI agents for screen analysis and automation tasks.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SBBender uses speech recognition to transcribe audio for AI agent processing.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>SBBender accesses your calendar to allow AI agents to read, create, and manage calendar events.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>SBBender accesses your reminders to allow AI agents to read, create, and manage reminders.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>SBBender sends Apple Events to automate other applications via AppleScript skills.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SBBender uses the microphone for real-time audio transcription by AI agents.</string>
+</dict>
+</plist>

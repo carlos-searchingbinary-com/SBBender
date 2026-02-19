@@ -6,6 +6,7 @@ import GRDB
 // MARK: - Sidebar Navigation
 
 enum SidebarItem: Hashable {
+    case dashboard
     case agents
     case agentChat(String)
     case teams
