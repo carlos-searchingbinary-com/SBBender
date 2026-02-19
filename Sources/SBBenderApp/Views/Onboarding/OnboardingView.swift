@@ -5,18 +5,9 @@ struct OnboardingView: View {
     @Environment(AppState.self) private var appState
     @State private var step: OnboardingStep = .welcome
     @State private var recommendedModels: [ModelEntry] = []
-    @State private var selectedModelID: String?
     @State private var selectedTemplateIDs: Set<String> = []
-    @State private var visionPreloadProgress: Double?
-    @State private var visionPreloadError: String?
 
     var onComplete: () -> Void
-
-    private var isSelectedModelReady: Bool {
-        guard let id = selectedModelID else { return false }
-        return appState.modelRegistry.isMLXModelDownloaded(id)
-            || appState.modelRegistry.mlxDownloadState[id] == .completed
-    }
 
     private enum OnboardingStep: Int, CaseIterable {
         case welcome
@@ -49,14 +40,6 @@ struct OnboardingView: View {
                 .padding(.bottom, 32)
         }
         .frame(minWidth: 600, minHeight: 500)
-        .task { await loadRecommendedModels() }
-        .onChange(of: selectedModelID) { _, newID in
-            guard let id = newID,
-                  !appState.modelRegistry.isMLXModelDownloaded(id),
-                  appState.modelRegistry.mlxDownloadState[id] == nil || appState.modelRegistry.mlxDownloadState[id] == .idle
-            else { return }
-            Task { await appState.modelRegistry.downloadMLXModel(id: id) }
-        }
     }
 
     // MARK: - Step Indicator
@@ -176,12 +159,11 @@ struct OnboardingView: View {
     }
 
     private func modelCard(_ model: ModelEntry) -> some View {
-        let isSelected = selectedModelID == model.id
+        let isSelected = false
         let isDownloaded = appState.modelRegistry.isMLXModelDownloaded(model.id)
         let downloadState = appState.modelRegistry.mlxDownloadState[model.id] ?? .idle
 
         return Button {
-            selectedModelID = model.id
         } label: {
             HStack(spacing: 14) {
                 // Selection indicator
@@ -307,32 +289,6 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 40)
             }
-
-            // Vision model preload progress
-            if let progress = visionPreloadProgress {
-                HStack(spacing: 10) {
-                    Image(systemName: "eye")
-                        .foregroundStyle(.purple)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Preparing image recognition...")
-                            .font(.caption.weight(.medium))
-                        ProgressView(value: progress)
-                            .frame(maxWidth: 200)
-                    }
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 40)
-                .padding(.bottom, 8)
-            }
-
-            if let error = visionPreloadError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 40)
-            }
         }
         .padding(.top, 12)
     }
@@ -345,10 +301,6 @@ struct OnboardingView: View {
                 selectedTemplateIDs.remove(template.id)
             } else {
                 selectedTemplateIDs.insert(template.id)
-                // Trigger vision model preload if this template uses vision
-                if template.skillIDs.contains(where: { $0.lowercased().contains("vision") || $0 == "describeImage" }) {
-                    triggerVisionPreload()
-                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -423,52 +375,10 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(step == .model && !isSelectedModelReady)
             }
         }
     }
 
-    // MARK: - Actions
-
-    private func loadRecommendedModels() async {
-        do {
-            let models = try await appState.curatedRegistry.featuredModels(for: appState.hardwareInfo.modelTier)
-            recommendedModels = models
-            // Pre-select the model matching user's tier
-            let tier = appState.hardwareInfo.modelTier
-            if let best = models.first(where: { $0.recommendedTier == tier }) {
-                selectedModelID = best.id
-            } else if let first = models.first {
-                selectedModelID = first.id
-            }
-        } catch {
-            // Fallback: suggest Qwen3-4B
-            selectedModelID = "mlx-community/Qwen3-4B-4bit"
-        }
-    }
-
-    private func triggerVisionPreload() {
-        guard visionPreloadProgress == nil else { return } // already started
-        visionPreloadProgress = 0
-        Task {
-            do {
-                if let visionSkill = appState.nativeSkills.compactMap({ $0 as? VisionSkill }).first {
-                    try await visionSkill.preload { progress in
-                        let fraction = progress.fractionCompleted
-                        Task { @MainActor in
-                            visionPreloadProgress = fraction
-                        }
-                    }
-                    visionPreloadProgress = nil // done
-                } else {
-                    visionPreloadProgress = nil // no VisionSkill available
-                }
-            } catch {
-                visionPreloadError = "Could not download image recognition — check your internet connection and try again."
-                visionPreloadProgress = nil
-            }
-        }
-    }
 
     private func friendlySize(_ size: String) -> String {
         let s = size.lowercased().replacingOccurrences(of: "b", with: "")
@@ -485,15 +395,18 @@ struct OnboardingView: View {
     }
 
     private func completeOnboarding() {
-        // Create agents from selected templates
+        let tierKey = appState.hardwareInfo.modelTier.rawValue
+        let fallbackModelID = "mlx-community/Qwen3-4B-4bit"
+
         for template in appState.agentTemplates where selectedTemplateIDs.contains(template.id) {
+            let modelID = template.recommendedModelsByTier[tierKey] ?? fallbackModelID
             let config = AgentConfig(
                 name: template.name,
                 emoji: template.emoji,
                 gradientHex: template.gradientHex,
                 instructions: template.instructions,
                 providerType: "mlx",
-                modelID: selectedModelID ?? "mlx-community/Qwen3-4B-4bit",
+                modelID: modelID,
                 enabledSkillIDs: template.skillIDs,
                 knowledgeEnabled: template.knowledgeEnabled,
                 learningEnabled: template.learningEnabled,
@@ -503,14 +416,13 @@ struct OnboardingView: View {
             appState.saveAgent(config)
         }
 
-        // If no templates selected, create a default general agent
         if selectedTemplateIDs.isEmpty {
             let config = AgentConfig(
                 name: "Assistant",
                 emoji: "🤖",
                 instructions: "You are a helpful assistant.",
                 providerType: "mlx",
-                modelID: selectedModelID ?? "mlx-community/Qwen3-4B-4bit",
+                modelID: fallbackModelID,
                 enabledSkillIDs: ["shell", "web-fetch", "language-detection", "sentiment"],
                 enableThinking: true
             )
