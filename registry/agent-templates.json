@@ -15,7 +15,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -34,7 +35,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -53,7 +55,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -72,7 +75,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -91,7 +95,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -110,7 +115,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   },
   {
@@ -148,7 +154,8 @@
     "recommendedModelsByTier": {
       "small": "mlx-community/Qwen3-4B-4bit",
       "medium": "mlx-community/Qwen3-8B-4bit",
-      "large": "mlx-community/Qwen3-8B-4bit"
+      "large": "mlx-community/Qwen3-8B-4bit",
+      "xlarge": "mlx-community/Qwen3-14B-4bit"
     }
   }
 ]
