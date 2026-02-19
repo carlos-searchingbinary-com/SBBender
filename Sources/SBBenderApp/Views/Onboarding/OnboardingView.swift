@@ -5,6 +5,7 @@ struct OnboardingView: View {
     @Environment(AppState.self) private var appState
     @State private var step: OnboardingStep = .welcome
     @State private var selectedTemplateIDs: Set<String> = []
+    @State private var hoveredTemplateID: String?
 
     var onComplete: () -> Void
 
@@ -180,30 +181,36 @@ struct OnboardingView: View {
     // MARK: - Templates Step
 
     private var templatesStep: some View {
-        VStack(spacing: 20) {
-            Text("Pick Starter Assistants")
-                .font(.title2.bold())
-
-            Text("Choose one or more pre-configured assistants to get started.\nYou can create more later.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+        VStack(spacing: 16) {
+            VStack(spacing: 6) {
+                Text("What do you want help with?")
+                    .font(.title2.bold())
+                Text("Pick as many as you like. You can always add more later.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 14)],
+                    spacing: 14
+                ) {
                     ForEach(appState.agentTemplates) { template in
                         templateCard(template)
                     }
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 4)
             }
         }
-        .padding(.top, 12)
+        .padding(.top, 8)
     }
 
     private func templateCard(_ template: AgentTemplate) -> some View {
         let isSelected = selectedTemplateIDs.contains(template.id)
+        let isHovered = hoveredTemplateID == template.id
+        let gradientColors = template.gradientHex.map { Color(hex: $0) }
 
         return Button {
             if isSelected {
@@ -212,50 +219,63 @@ struct OnboardingView: View {
                 selectedTemplateIDs.insert(template.id)
             }
         } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(template.emoji)
-                        .font(.title)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    AgentAvatar(emoji: template.emoji, gradientHex: template.gradientHex, size: 48)
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.blue)
                             .font(.title3)
+                            .foregroundStyle(.white, Color.accentColor)
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
 
-                if let tagline = template.tagline {
-                    Text("\"\(tagline)\"")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .italic()
-                        .lineLimit(2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(template.name)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if let tagline = template.tagline {
+                        Text("\u{201C}\(tagline)\u{201D}")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .italic()
+                            .lineLimit(2)
+                    }
                 }
-
-                Text(template.name)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                Text(template.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.06) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    colors: gradientColors.map { $0.opacity(isSelected ? 0.14 : 0.07) },
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(
-                        isSelected ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06),
-                        lineWidth: 1
+                        isSelected
+                            ? LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                            : LinearGradient(colors: [Color.primary.opacity(isHovered ? 0.15 : 0.07)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: isSelected ? 2 : 1
                     )
-            )
+            }
+            .animation(.easeInOut(duration: 0.15), value: isSelected)
+            .animation(.easeInOut(duration: 0.1), value: isHovered)
         }
         .buttonStyle(.plain)
+        .onHover { hoveredTemplateID = $0 ? template.id : nil }
     }
 
     // MARK: - Navigation
