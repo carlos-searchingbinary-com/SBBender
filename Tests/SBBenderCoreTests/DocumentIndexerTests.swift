@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SBBender
+@testable import SBBenderCore
 
 @Suite("DocumentIndexer Tests")
 struct DocumentIndexerTests {

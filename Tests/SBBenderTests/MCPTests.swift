@@ -195,9 +195,13 @@ struct MCPTests {
 
         let agent = Agent(
             configuration: AgentConfiguration(name: "MCPAgent"),
-            model: provider,
-            mcpManager: manager
+            model: provider
         )
+        // Register MCP tools on the agent
+        let mcpTools = await manager.allTools()
+        for tool in mcpTools {
+            await agent.addTool(tool)
+        }
 
         let result = try await agent.run("Greet Alice")
         #expect(result.status == .completed)

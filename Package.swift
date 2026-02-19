@@ -12,6 +12,10 @@ let package = Package(
             name: "SBBender",
             targets: ["SBBender"]
         ),
+        .library(
+            name: "SBBenderCore",
+            targets: ["SBBenderCore"]
+        ),
         .executable(
             name: "SwarmDemo",
             targets: ["SwarmDemo"]
@@ -24,21 +28,12 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
         .package(url: "https://github.com/apple/containerization.git", from: "0.1.0"),
         .package(url: "https://github.com/duckdb/duckdb-swift.git", from: "1.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
     ],
     targets: [
+        // MARK: - Core (lightweight, no heavy deps)
         .target(
-            name: "SBBender",
-            dependencies: [
-                .product(name: "MLX", package: "mlx-swift"),
-                .product(name: "MLXRandom", package: "mlx-swift"),
-                .product(name: "MLXLLM", package: "mlx-swift-lm"),
-                .product(name: "MLXVLM", package: "mlx-swift-lm"),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
-                .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "MCP", package: "swift-sdk"),
-                .product(name: "Containerization", package: "containerization", condition: .when(platforms: [.macOS])),
-                .product(name: "DuckDB", package: "duckdb-swift"),
-            ],
+            name: "SBBenderCore",
             linkerSettings: [
                 .linkedFramework("NaturalLanguage"),
                 .linkedFramework("Speech"),
@@ -48,6 +43,24 @@ let package = Package(
                 .linkedFramework("ScreenCaptureKit"),
             ]
         ),
+
+        // MARK: - Full runtime (re-exports Core)
+        .target(
+            name: "SBBender",
+            dependencies: [
+                "SBBenderCore",
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXRandom", package: "mlx-swift"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "Containerization", package: "containerization", condition: .when(platforms: [.macOS])),
+                .product(name: "DuckDB", package: "duckdb-swift"),
+            ]
+        ),
+
         .executableTarget(
             name: "SwarmDemo",
             dependencies: ["SBBender"]
@@ -59,17 +72,31 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Sources/SBBenderApp"
+            path: "Sources/SBBenderApp",
+            exclude: ["Info.plist", "SBBenderApp.entitlements"],
+            resources: [
+                .copy("PrivacyInfo.xcprivacy"),
+            ]
         ),
         .executableTarget(
             name: "RealIntegrationTests",
             dependencies: ["SBBender"],
             path: "Sources/RealIntegrationTests"
         ),
+
+        // MARK: - Tests
+        .testTarget(
+            name: "SBBenderCoreTests",
+            dependencies: ["SBBenderCore"]
+        ),
         .testTarget(
             name: "SBBenderTests",
-            dependencies: ["SBBender"]
+            dependencies: [
+                "SBBender",
+                .product(name: "MCP", package: "swift-sdk"),
+            ]
         ),
     ]
 )

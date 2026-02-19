@@ -147,11 +147,11 @@ public actor CuratedRegistry {
 
     // MARK: - Filtered Queries
 
-    /// Models compatible with the given hardware, sorted featured-first then by RAM.
-    public func recommendedModels(for hardware: HardwareInfo) async throws -> [ModelEntry] {
+    /// Models compatible with the given tier, sorted featured-first then by RAM.
+    public func recommendedModels(for tier: ModelTier) async throws -> [ModelEntry] {
         let all = try await models()
         return all
-            .filter { $0.minTier <= hardware.modelTier }
+            .filter { $0.minTier <= tier }
             .sorted { a, b in
                 if a.featured != b.featured { return a.featured }
                 return a.ramRequired < b.ramRequired
@@ -164,10 +164,10 @@ public actor CuratedRegistry {
         return all.filter { $0.category == category }
     }
 
-    /// Featured models for the given hardware tier.
-    public func featuredModels(for hardware: HardwareInfo) async throws -> [ModelEntry] {
+    /// Featured models for the given tier.
+    public func featuredModels(for tier: ModelTier) async throws -> [ModelEntry] {
         let all = try await models()
-        return all.filter { $0.featured && $0.minTier <= hardware.modelTier }
+        return all.filter { $0.featured && $0.minTier <= tier }
     }
 
     /// MCP servers compatible with the given model tier.
@@ -176,10 +176,10 @@ public actor CuratedRegistry {
         return all.filter { $0.minModelTier <= tier }
     }
 
-    /// Bundles compatible with the given hardware.
-    public func compatibleBundles(for hardware: HardwareInfo) async throws -> [BundleEntry] {
+    /// Bundles compatible with the given tier.
+    public func compatibleBundles(for tier: ModelTier) async throws -> [BundleEntry] {
         let all = try await bundles()
-        return all.filter { $0.minTier <= hardware.modelTier }
+        return all.filter { $0.minTier <= tier }
     }
 
     // MARK: - Cache Management

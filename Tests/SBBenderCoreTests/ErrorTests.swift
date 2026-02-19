@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SBBender
+@testable import SBBenderCore
 
 @Suite("SBBenderError Tests")
 struct ErrorTests {

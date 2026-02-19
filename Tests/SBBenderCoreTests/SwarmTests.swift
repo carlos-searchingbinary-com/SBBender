@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SBBender
+@testable import SBBenderCore
 
 @Suite("Swarm Tests")
 struct SwarmTests {

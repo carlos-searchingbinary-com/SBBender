@@ -181,9 +181,11 @@ struct SwarmToolsIntegrationTests {
             model: MockProvider(
                 responses: ["Echo result received."],
                 toolCallResponses: [([echoToolCall], "")]
-            ),
-            mcpManager: echoManager
+            )
         )
+        for tool in await echoManager.allTools() {
+            await echoAgent.addTool(tool)
+        }
 
         // Agent 2: uses uppercase MCP server
         let upperManager = MCPManager()
@@ -195,9 +197,11 @@ struct SwarmToolsIntegrationTests {
             model: MockProvider(
                 responses: ["Uppercase result received."],
                 toolCallResponses: [([upperToolCall], "")]
-            ),
-            mcpManager: upperManager
+            )
         )
+        for tool in await upperManager.allTools() {
+            await upperAgent.addTool(tool)
+        }
 
         let swarm = Swarm(
             name: "MCPSwarm",
@@ -394,9 +398,11 @@ struct SwarmToolsIntegrationTests {
                     return String(parsed.text.reversed())
                 }
             ],
-            nativeTools: [LanguageDetectionSkill()],
-            mcpManager: mcpManager
+            nativeTools: [LanguageDetectionSkill()]
         )
+        for tool in await mcpManager.allTools() {
+            await agent.addTool(tool)
+        }
 
         let result = try await agent.run("Use all three tools")
         #expect(result.status == .completed)

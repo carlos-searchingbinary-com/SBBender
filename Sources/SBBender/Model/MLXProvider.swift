@@ -4,6 +4,7 @@ import MLX
 import MLXRandom
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
+import SBBenderCore
 
 /// Local LLM inference via MLX Swift on Apple Silicon.
 ///
@@ -30,7 +31,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     public init(
         modelID: String = "mlx-community/Qwen3-4B-4bit",
         gpuCacheLimit: Int = 20 * 1024 * 1024,
-        toolCallFormat: (any ToolCallFormat)? = nil // Ignored — native detection used
+        toolCallFormat: (any SBToolCallFormat)? = nil // Ignored — native detection used
     ) {
         self.modelID = modelID
         self.gpuCacheLimit = gpuCacheLimit
@@ -100,7 +101,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     // MARK: - Generate (non-streaming)
 
     public func generate(
-        messages: [Message],
+        messages: [SBMessage],
         config: GenerationConfig,
         tools: [ToolDefinition]
     ) async throws -> ModelResponse {
@@ -159,8 +160,8 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
             let sbToolCalls = nativeToolCalls.map { Self.toSBBenderToolCall($0) }
             Log.tool.info("MLX native tool calls detected: \(sbToolCalls.map(\.name))")
 
-            let content: [Content] = text.isEmpty ? [] : [.text(text)]
-            let message = Message(
+            let content: [SBBenderCore.Content] = text.isEmpty ? [] : [.text(text)]
+            let message = SBMessage(
                 role: .assistant,
                 content: content,
                 toolCalls: sbToolCalls
@@ -184,7 +185,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     // MARK: - Generate (streaming)
 
     public func generateStream(
-        messages: [Message],
+        messages: [SBMessage],
         config: GenerationConfig,
         tools: [ToolDefinition]
     ) -> AsyncThrowingStream<StreamDelta, Error> {
@@ -247,7 +248,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     // MARK: - Type Conversions
 
     /// Convert SBBender Message → mlx-swift-lm Chat.Message
-    static func toChatMessage(_ message: Message) -> Chat.Message {
+    static func toChatMessage(_ message: SBMessage) -> Chat.Message {
         switch message.role {
         case .system:
             return .system(message.text)
@@ -291,7 +292,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     }
 
     /// Convert mlx-swift-lm ToolCall → SBBender ToolCall
-    static func toSBBenderToolCall(_ tc: MLXLMCommon.ToolCall) -> SBBender.ToolCall {
+    static func toSBBenderToolCall(_ tc: MLXLMCommon.ToolCall) -> SBBenderCore.ToolCall {
         // Convert JSONValue arguments to JSON string
         let argsDict = tc.function.arguments.mapValues { $0.anyValue }
         let argsString: String
@@ -301,7 +302,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
         } else {
             argsString = "{}"
         }
-        return SBBender.ToolCall(name: tc.function.name, arguments: argsString)
+        return SBBenderCore.ToolCall(name: tc.function.name, arguments: argsString)
     }
 
     /// Recursively convert [String: Any] to [String: any Sendable] for tool schemas.
@@ -386,7 +387,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     // MARK: - Static Helpers (backward compatibility for tests)
 
     /// Build a ChatML prompt string from messages. Delegates to Qwen3ToolFormat.
-    static func buildPrompt(from messages: [Message], tools: [ToolDefinition] = []) -> String {
+    static func buildPrompt(from messages: [SBMessage], tools: [ToolDefinition] = []) -> String {
         let format = Qwen3ToolFormat()
         return messages.map { msg in
             switch msg.role {
@@ -430,7 +431,7 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
     }
 
     /// Parse `<tool_call>` blocks from model output. Delegates to Qwen3ToolFormat.
-    static func parseToolCalls(_ text: String) -> ([SBBender.ToolCall], String) {
+    static func parseToolCalls(_ text: String) -> ([SBBenderCore.ToolCall], String) {
         Qwen3ToolFormat().parseToolCalls(text)
     }
 
