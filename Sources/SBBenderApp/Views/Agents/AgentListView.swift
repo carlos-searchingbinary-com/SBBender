@@ -127,7 +127,7 @@ struct AgentListView: View {
                 .environment(appState)
         }
         .alert(
-            "Delete Agent?",
+            "Delete Assistant?",
             isPresented: Binding(
                 get: { agentToDelete != nil },
                 set: { if !$0 { agentToDelete = nil } }

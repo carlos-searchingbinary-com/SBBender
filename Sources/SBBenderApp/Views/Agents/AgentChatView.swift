@@ -11,6 +11,8 @@ struct AgentChatView: View {
     @State private var isFileDropTargeted = false
     @State private var showEditSheet = false
     @State private var showClearConfirmation = false
+    @State private var knowledgeChunkCount: Int = 0
+    @State private var knowledgeDocCount: Int = 0
 
     private var config: AgentConfig? {
         appState.agentConfig(for: agentID)
@@ -30,7 +32,7 @@ struct AgentChatView: View {
                     .frame(minWidth: 260, maxWidth: 360)
             }
         }
-        .navigationTitle(config?.name ?? "Agent Chat")
+        .navigationTitle(config?.name ?? "Chat")
         .toolbar { toolbarContent }
         .sheet(isPresented: $showEditSheet) {
             if let config {
@@ -39,6 +41,19 @@ struct AgentChatView: View {
             }
         }
         .task { await setupAgent() }
+        .sheet(item: $viewModel.pendingConfirmation) { confirmation in
+            ToolConfirmationSheet(confirmation: confirmation) {
+                Task {
+                    await confirmation.approve()
+                    viewModel.pendingConfirmation = nil
+                }
+            } onDeny: {
+                Task {
+                    await confirmation.deny()
+                    viewModel.pendingConfirmation = nil
+                }
+            }
+        }
         .alert("Start new conversation?", isPresented: $showClearConfirmation) {
             Button("New Chat", role: .destructive) {
                 Task { await newChat() }
@@ -90,7 +105,7 @@ struct AgentChatView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Back to My Agents")
+            .help("Back to My Assistants")
 
             AgentAvatar(emoji: config.emoji, gradientHex: config.gradientHex, size: 30)
 
@@ -121,7 +136,7 @@ struct AgentChatView: View {
                         color: .blue
                     )
                 }
-                if !config.mcpServerIDs.isEmpty {
+                if appState.showAdvancedFeatures && !config.mcpServerIDs.isEmpty {
                     compactBadge(
                         "\(config.mcpServerIDs.count)",
                         icon: "server.rack",
@@ -129,13 +144,13 @@ struct AgentChatView: View {
                     )
                 }
                 if config.knowledgeEnabled {
-                    compactBadge("KB", icon: "book.closed.fill", color: .indigo)
+                    compactBadge("Docs", icon: "book.closed.fill", color: .indigo)
                 }
                 if config.learningEnabled {
-                    compactBadge("Mem", icon: "brain", color: .purple)
+                    compactBadge("Memory", icon: "brain", color: .purple)
                 }
                 if config.enableThinking {
-                    compactBadge("Think", icon: "lightbulb.fill", color: .orange)
+                    compactBadge("Reason", icon: "lightbulb.fill", color: .orange)
                 }
             }
         }
@@ -196,6 +211,13 @@ struct AgentChatView: View {
                     .padding(.horizontal, 40)
                     .padding(.bottom, 24)
 
+                // Knowledge status card
+                if config.knowledgeEnabled {
+                    knowledgeStatusCard
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, 24)
+                }
+
                 // Quick-start suggestions
                 quickStartSuggestions(config)
                     .padding(.horizontal, 40)
@@ -204,6 +226,64 @@ struct AgentChatView: View {
             }
             .frame(maxWidth: .infinity)
         }
+    }
+
+    @ViewBuilder
+    private var knowledgeStatusCard: some View {
+        HStack(spacing: 12) {
+            if viewModel.isRehydrating {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading knowledge...")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    if case .embedding(let current, let total) = viewModel.rehydrationProgress {
+                        ProgressView(value: Double(current), total: Double(max(total, 1)))
+                        Text("Embedding \(current)/\(total) chunks")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if case .buildingIndex = viewModel.rehydrationProgress {
+                        Text("Building search index...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if knowledgeChunkCount > 0 {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(knowledgeDocCount) document\(knowledgeDocCount == 1 ? "" : "s"), \(knowledgeChunkCount) chunks ready")
+                        .font(.subheadline.weight(.medium))
+                    Text("Knowledge base is loaded and searchable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Image(systemName: "doc.badge.plus")
+                    .foregroundStyle(.indigo)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No documents loaded")
+                        .font(.subheadline.weight(.medium))
+                    Text("Drop documents in Knowledge settings to get started")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.indigo.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.indigo.opacity(0.15), lineWidth: 1)
+        )
     }
 
     private func capabilitiesGrid(_ config: AgentConfig) -> some View {
@@ -216,10 +296,10 @@ struct AgentChatView: View {
         return Group {
             if hasAnyCapability {
                 VStack(alignment: .leading, spacing: 12) {
-                    // Skills
+                    // Capabilities
                     if !skillNames.isEmpty {
                         capabilitySection(
-                            title: "Skills",
+                            title: "Capabilities",
                             icon: "sparkle",
                             color: .blue
                         ) {
@@ -239,10 +319,10 @@ struct AgentChatView: View {
                         }
                     }
 
-                    // MCP Servers
-                    if !mcpNames.isEmpty {
+                    // Plugins (MCP — only visible in advanced mode)
+                    if appState.showAdvancedFeatures && !mcpNames.isEmpty {
                         capabilitySection(
-                            title: "MCP Servers",
+                            title: "Plugins",
                             icon: "server.rack",
                             color: .green
                         ) {
@@ -527,10 +607,10 @@ struct AgentChatView: View {
                         }
                     }
 
-                    // Skills
+                    // Capabilities
                     let skillNames = resolvedSkillNames(config)
                     if !skillNames.isEmpty {
-                        infoSection(title: "Skills (\(skillNames.count))", icon: "sparkle") {
+                        infoSection(title: "Capabilities (\(skillNames.count))", icon: "sparkle") {
                             FlowLayout(spacing: 4) {
                                 ForEach(skillNames, id: \.self) { name in
                                     Text(name)
@@ -546,10 +626,10 @@ struct AgentChatView: View {
                         }
                     }
 
-                    // MCP Servers
+                    // Plugins (MCP — gated)
                     let mcpNames = resolvedMCPNames(config)
-                    if !mcpNames.isEmpty {
-                        infoSection(title: "MCP Servers (\(mcpNames.count))", icon: "server.rack") {
+                    if appState.showAdvancedFeatures && !mcpNames.isEmpty {
+                        infoSection(title: "Plugins (\(mcpNames.count))", icon: "server.rack") {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(mcpNames, id: \.self) { name in
                                     HStack(spacing: 5) {
@@ -564,9 +644,9 @@ struct AgentChatView: View {
                         }
                     }
 
-                    // Custom Tools
+                    // Custom Tools (gated)
                     let toolNames = resolvedToolNames(config)
-                    if !toolNames.isEmpty {
+                    if appState.showAdvancedFeatures && !toolNames.isEmpty {
                         infoSection(title: "Custom Tools (\(toolNames.count))", icon: "wrench") {
                             FlowLayout(spacing: 4) {
                                 ForEach(toolNames, id: \.self) { name in
@@ -602,26 +682,28 @@ struct AgentChatView: View {
                         }
                     }
 
-                    // Generation config
-                    infoSection(title: "Generation", icon: "slider.horizontal.3") {
+                    // Settings
+                    infoSection(title: "Settings", icon: "slider.horizontal.3") {
                         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
                             GridRow {
-                                Text("Temperature")
+                                Text("Creativity")
                                     .font(.caption2).foregroundStyle(.secondary)
-                                Text(String(format: "%.1f", config.temperature))
+                                Text(friendlyCreativity(config.temperature))
                                     .font(.caption.weight(.medium))
                             }
                             GridRow {
-                                Text("Max tokens")
+                                Text("Response length")
                                     .font(.caption2).foregroundStyle(.secondary)
-                                Text("\(config.maxTokens)")
+                                Text(friendlyResponseLength(config.maxTokens))
                                     .font(.caption.weight(.medium))
                             }
-                            GridRow {
-                                Text("Top-p")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                Text(String(format: "%.1f", config.topP))
-                                    .font(.caption.weight(.medium))
+                            if appState.showAdvancedFeatures {
+                                GridRow {
+                                    Text("Top-p")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f", config.topP))
+                                        .font(.caption.weight(.medium))
+                                }
                             }
                         }
                     }
@@ -630,7 +712,7 @@ struct AgentChatView: View {
                     Button {
                         showEditSheet = true
                     } label: {
-                        Label("Edit Agent", systemImage: "pencil")
+                        Label("Edit Assistant", systemImage: "pencil")
                             .font(.caption.weight(.medium))
                             .frame(maxWidth: .infinity)
                     }
@@ -668,7 +750,7 @@ struct AgentChatView: View {
                 ContentUnavailableView(
                     "No Activity",
                     systemImage: "waveform",
-                    description: Text("Events will appear here when the agent runs.")
+                    description: Text("Events will appear here when the assistant runs.")
                 )
             } else {
                 ActivityFeedView(events: viewModel.activityEvents)
@@ -764,7 +846,7 @@ struct AgentChatView: View {
             } label: {
                 Image(systemName: "gearshape")
             }
-            .help("Edit Agent")
+            .help("Edit Assistant")
         }
         ToolbarItem(placement: .automatic) {
             Button {
@@ -791,6 +873,26 @@ struct AgentChatView: View {
         self.agent = await appState.getOrCreateLiveAgent(for: config)
         let storage = await appState.persistence?.storage
         await viewModel.loadConversation(storage: storage, agentID: config.id)
+
+        // Auto-rehydrate knowledge if indexer is empty but files are persisted
+        if config.knowledgeEnabled {
+            let indexer = appState.getOrCreateKnowledgeIndexer(for: config)
+            let chunks = await indexer.chunkCount
+            if chunks == 0 {
+                viewModel.isRehydrating = true
+                await indexer.setOnProgress { [viewModel] progress in
+                    Task { @MainActor in
+                        viewModel.rehydrationProgress = progress.phase
+                    }
+                }
+                await appState.rehydrateKnowledge(for: config)
+                viewModel.isRehydrating = false
+                viewModel.rehydrationProgress = nil
+            }
+            // Update knowledge stats for the welcome view
+            knowledgeChunkCount = await indexer.chunkCount
+            knowledgeDocCount = await indexer.sourceCount
+        }
     }
 
     private func newChat() async {
@@ -804,7 +906,7 @@ struct AgentChatView: View {
         let isFirstMessage = viewModel.messages.count(where: { $0.role == "user" }) <= 1
         await viewModel.sendMessage(
             agent: agent,
-            agentName: config?.name ?? "Agent",
+            agentName: config?.name ?? "Assistant",
             providerType: providerName,
             modelID: config?.modelID
         )
@@ -905,6 +1007,26 @@ struct AgentChatView: View {
         return "\(provider) \u{2022} \(model)"
     }
 
+    private func friendlyCreativity(_ t: Float) -> String {
+        switch t {
+        case 0.0...0.2: return "Very precise"
+        case 0.2...0.5: return "Focused"
+        case 0.5...0.8: return "Balanced"
+        case 0.8...1.1: return "Creative"
+        default: return "Very creative"
+        }
+    }
+
+    private func friendlyResponseLength(_ tokens: Int) -> String {
+        switch tokens {
+        case ...512: return "Brief"
+        case 513...1024: return "Short"
+        case 1025...2048: return "Medium"
+        case 2049...4096: return "Long"
+        default: return "Very long"
+        }
+    }
+
     private func resolvedSkillNames(_ config: AgentConfig) -> [String] {
         config.enabledSkillIDs.map { SkillMetadata.displayName(for: $0) }
     }
@@ -943,13 +1065,13 @@ struct AgentChatView: View {
             features.append(FeatureInfo(label: "Memory", icon: "brain", color: .purple))
         }
         if config.enableThinking {
-            features.append(FeatureInfo(label: "Deep Thinking", icon: "lightbulb.fill", color: .orange))
+            features.append(FeatureInfo(label: "Deep Reasoning", icon: "lightbulb.fill", color: .orange))
         }
         if config.markdown {
             features.append(FeatureInfo(label: "Markdown", icon: "text.badge.checkmark", color: .teal))
         }
         if !config.attachedSkillIDs.isEmpty {
-            features.append(FeatureInfo(label: "\(config.attachedSkillIDs.count) Instruction Skills", icon: "doc.text", color: .mint))
+            features.append(FeatureInfo(label: "\(config.attachedSkillIDs.count) Behaviors", icon: "doc.text", color: .mint))
         }
         return features
     }
