@@ -7,13 +7,16 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                // Hero
                 heroSection
 
-                // Capabilities grid
+                if appState.agents.isEmpty {
+                    quickStartSection
+                } else {
+                    yourAssistantsSection
+                }
+
                 capabilitiesSection
 
-                // Stats footer
                 statsFooter
             }
             .padding(32)
@@ -29,10 +32,112 @@ struct DashboardView: View {
             Text("Your AI Can...")
                 .font(.largeTitle.bold())
 
-            Text("These are the capabilities available to your assistants — powered by Apple Silicon and local models.")
+            Text("Everything runs on your Mac — private, fast, and no internet required.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 500, alignment: .leading)
+        }
+    }
+
+    // MARK: - Quick Start (no assistants)
+
+    private var quickStartSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Get Started")
+                .font(.title3.weight(.semibold))
+
+            Button {
+                appState.selectedSidebarItem = .agents
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Create Your First Assistant")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Choose a template or build one from scratch.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.blue.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.blue.opacity(0.15), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Your Assistants
+
+    private var yourAssistantsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your Assistants")
+                .font(.title3.weight(.semibold))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(appState.agents) { agent in
+                        Button {
+                            appState.selectedSidebarItem = .agentChat(agent.id)
+                        } label: {
+                            HStack(spacing: 10) {
+                                AgentAvatar(emoji: agent.emoji, gradientHex: agent.gradientHex, size: 36)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(agent.name)
+                                        .font(.subheadline.weight(.medium))
+                                        .lineLimit(1)
+                                    Text("\(agent.enabledSkillIDs.count) capabilities")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(.ultraThinMaterial)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // Add new button
+                    Button {
+                        appState.selectedSidebarItem = .agents
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                                .font(.caption.weight(.semibold))
+                            Text("New")
+                                .font(.caption.weight(.medium))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(Color.primary.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 
@@ -41,13 +146,32 @@ struct DashboardView: View {
     private var capabilitiesSection: some View {
         let capabilities = buildCapabilities()
         let grouped = Dictionary(grouping: capabilities) { $0.category }
-        let sortedCategories: [CapabilityCategory] = [.language, .calendar, .documents, .web, .automation, .analysis]
+        let sortedCategories: [(CapabilityCategory, String, String)] = [
+            (.language, "Language", "textformat.abc"),
+            (.calendar, "Calendar & Tasks", "calendar.badge.clock"),
+            (.documents, "Documents", "doc.text.magnifyingglass"),
+            (.web, "Web", "globe"),
+            (.automation, "Automation", "gearshape.2"),
+            (.analysis, "Analysis & Vision", "chart.bar.xaxis"),
+        ]
 
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 16)], spacing: 16) {
-            ForEach(sortedCategories, id: \.self) { category in
-                if let items = grouped[category] {
-                    ForEach(items) { cap in
-                        capabilityCard(cap)
+        return VStack(alignment: .leading, spacing: 20) {
+            Text("All Capabilities")
+                .font(.title3.weight(.semibold))
+
+            ForEach(sortedCategories, id: \.0) { category, label, icon in
+                if let items = grouped[category], !items.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(label, systemImage: icon)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                            ForEach(items) { cap in
+                                capabilityCard(cap)
+                            }
+                        }
                     }
                 }
             }
@@ -59,7 +183,6 @@ struct DashboardView: View {
             if let agentID = cap.availableInAgentID {
                 appState.selectedSidebarItem = .agentChat(agentID)
             } else {
-                // "Needs Setup" → navigate to agent list so user can create one
                 appState.selectedSidebarItem = .agents
             }
         } label: {
@@ -158,30 +281,33 @@ struct DashboardView: View {
         return [
             // Language
             Capability(name: "Language Detection", description: "Identify 60+ languages instantly", icon: "globe", color: .blue, category: .language, isActive: isActive("language-detection"), examplePrompt: "What language is this?", availableInAgentID: agentFor("language-detection")),
-            Capability(name: "Sentiment Analysis", description: "Analyze emotional tone of text", icon: "face.smiling", color: .green, category: .language, isActive: isActive("sentiment"), examplePrompt: "How does this review feel?", availableInAgentID: agentFor("sentiment")),
-            Capability(name: "Entity Extraction", description: "Find names, places, dates in text", icon: "person.text.rectangle", color: .purple, category: .language, isActive: isActive("entity-extraction"), examplePrompt: "Extract people and places from this article", availableInAgentID: agentFor("entity-extraction")),
+            Capability(name: "Sentiment Analysis", description: "Understand the emotional tone of text", icon: "face.smiling", color: .green, category: .language, isActive: isActive("sentiment"), examplePrompt: "How does this review feel?", availableInAgentID: agentFor("sentiment")),
+            Capability(name: "Entity Extraction", description: "Find names, places, and dates in text", icon: "person.text.rectangle", color: .purple, category: .language, isActive: isActive("entity-extraction"), examplePrompt: "Who is mentioned in this article?", availableInAgentID: agentFor("entity-extraction")),
             Capability(name: "Translation", description: "Translate between languages on-device", icon: "character.bubble", color: .teal, category: .language, isActive: isActive("translation"), examplePrompt: "Translate this to Spanish", availableInAgentID: agentFor("translation")),
 
             // Calendar & Tasks
-            Capability(name: "Calendar", description: "View and manage calendar events", icon: "calendar", color: .red, category: .calendar, isActive: isActive("calendar"), examplePrompt: "What's on my schedule today?", availableInAgentID: agentFor("calendar")),
-            Capability(name: "Reminders", description: "Create and search reminders", icon: "checklist", color: .orange, category: .calendar, isActive: isActive("reminders"), examplePrompt: "Remind me to call Mom at 5pm", availableInAgentID: agentFor("reminders")),
+            Capability(name: "Calendar", description: "View and manage your schedule", icon: "calendar", color: .red, category: .calendar, isActive: isActive("calendar"), examplePrompt: "What's on my schedule today?", availableInAgentID: agentFor("calendar")),
+            Capability(name: "Reminders", description: "Create and manage your to-do list", icon: "checklist", color: .orange, category: .calendar, isActive: isActive("reminders"), examplePrompt: "Remind me to call Mom at 5pm", availableInAgentID: agentFor("reminders")),
 
             // Documents
-            Capability(name: "Knowledge Base", description: "Search ingested documents with AI", icon: "doc.text.magnifyingglass", color: .indigo, category: .documents, isActive: appState.agents.contains(where: { $0.knowledgeEnabled }), examplePrompt: "What does the report say about Q4?", availableInAgentID: appState.agents.first(where: { $0.knowledgeEnabled })?.id),
+            Capability(name: "Knowledge Base", description: "Search your documents with AI", icon: "doc.text.magnifyingglass", color: .indigo, category: .documents, isActive: appState.agents.contains(where: { $0.knowledgeEnabled }), examplePrompt: "What does the report say about Q4?", availableInAgentID: appState.agents.first(where: { $0.knowledgeEnabled })?.id),
 
             // Web
-            Capability(name: "Web Browsing", description: "Navigate and extract web content", icon: "safari", color: .blue, category: .web, isActive: isActive("webkit_browser") || isActive("browser"), examplePrompt: "Summarize the homepage of apple.com", availableInAgentID: agentFor("webkit_browser") ?? agentFor("browser")),
-            Capability(name: "Web Fetch", description: "Download and parse web pages", icon: "arrow.down.doc", color: .cyan, category: .web, isActive: isActive("web-fetch"), examplePrompt: "Fetch the latest Swift blog post", availableInAgentID: agentFor("web-fetch")),
+            Capability(name: "Web Browsing", description: "Navigate websites and extract content", icon: "safari", color: .blue, category: .web, isActive: isActive("webkit_browser") || isActive("browser"), examplePrompt: "Summarize the homepage of apple.com", availableInAgentID: agentFor("webkit_browser") ?? agentFor("browser")),
+            Capability(name: "Web Fetch", description: "Download and read web pages", icon: "arrow.down.doc", color: .cyan, category: .web, isActive: isActive("web-fetch"), examplePrompt: "Fetch the latest Swift blog post", availableInAgentID: agentFor("web-fetch")),
 
             // Automation
-            Capability(name: "Email", description: "Read, search, and send via Mail.app", icon: "envelope", color: .blue, category: .automation, isActive: isActive("email"), examplePrompt: "Show my unread emails", availableInAgentID: agentFor("email")),
-            Capability(name: "Shell Commands", description: "Run safe terminal commands", icon: "terminal", color: .gray, category: .automation, isActive: isActive("shell"), examplePrompt: "List files in my Downloads folder", availableInAgentID: agentFor("shell")),
-            Capability(name: "Shortcuts", description: "Run Apple Shortcuts automations", icon: "command.square", color: .pink, category: .automation, isActive: isActive("shortcuts"), examplePrompt: "Run my Morning Routine shortcut", availableInAgentID: agentFor("shortcuts")),
+            Capability(name: "Email", description: "Read, search, and compose via Mail.app", icon: "envelope", color: .blue, category: .automation, isActive: isActive("email"), examplePrompt: "Show my unread emails", availableInAgentID: agentFor("email")),
+            Capability(name: "Terminal", description: "Run safe commands on your Mac", icon: "terminal", color: .gray, category: .automation, isActive: isActive("shell"), examplePrompt: "List files in my Downloads folder", availableInAgentID: agentFor("shell")),
+            Capability(name: "Shortcuts", description: "Run your Apple Shortcuts automations", icon: "command.square", color: .pink, category: .automation, isActive: isActive("shortcuts"), examplePrompt: "Run my Morning Routine shortcut", availableInAgentID: agentFor("shortcuts")),
+            Capability(name: "AppleScript", description: "Automate macOS apps with scripts", icon: "applescript", color: .indigo, category: .automation, isActive: isActive("applescript"), examplePrompt: "Open Safari and go to apple.com", availableInAgentID: agentFor("applescript")),
 
-            // Analysis
-            Capability(name: "Image Analysis", description: "Describe and analyze images locally", icon: "eye", color: .purple, category: .analysis, isActive: isActive("describeImage") || isActive("vision"), examplePrompt: "Describe this screenshot", availableInAgentID: agentFor("describeImage") ?? agentFor("vision")),
-            Capability(name: "Data Analysis", description: "Query and analyze CSV/Excel data", icon: "chart.bar", color: .orange, category: .analysis, isActive: isActive("data-analysis"), examplePrompt: "Chart the sales by month", availableInAgentID: agentFor("data-analysis")),
-            Capability(name: "Charts", description: "Generate charts from data", icon: "chart.pie", color: .mint, category: .analysis, isActive: isActive("charting"), examplePrompt: "Create a pie chart of expenses", availableInAgentID: agentFor("charting")),
+            // Analysis & Vision
+            Capability(name: "Image Analysis", description: "Describe and understand images locally", icon: "eye", color: .purple, category: .analysis, isActive: isActive("describeImage") || isActive("vision"), examplePrompt: "Describe this screenshot", availableInAgentID: agentFor("describeImage") ?? agentFor("vision")),
+            Capability(name: "Data Analysis", description: "Query and analyze CSV or Excel files", icon: "chart.bar", color: .orange, category: .analysis, isActive: isActive("data-analysis"), examplePrompt: "Show the top 10 rows from my spreadsheet", availableInAgentID: agentFor("data-analysis")),
+            Capability(name: "Charts", description: "Generate charts and visualizations", icon: "chart.pie", color: .mint, category: .analysis, isActive: isActive("charting"), examplePrompt: "Create a pie chart of expenses", availableInAgentID: agentFor("charting")),
+            Capability(name: "Screen Capture", description: "Capture and analyze your screen", icon: "rectangle.dashed.badge.record", color: .teal, category: .analysis, isActive: isActive("screencapture"), examplePrompt: "Take a screenshot of my screen", availableInAgentID: agentFor("screencapture")),
+            Capability(name: "Transcription", description: "Convert audio to text on-device", icon: "waveform", color: .indigo, category: .analysis, isActive: isActive("transcription"), examplePrompt: "Transcribe this audio file", availableInAgentID: agentFor("transcription")),
         ]
     }
 }
