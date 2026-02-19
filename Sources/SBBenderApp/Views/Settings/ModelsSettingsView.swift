@@ -291,9 +291,11 @@ struct ModelsSettingsView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(shortName)
                     .font(.body.weight(.medium))
-                Text(modelID)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if appState.showAdvancedFeatures {
+                    Text(modelID)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer()
             Image(systemName: "checkmark.circle.fill")
@@ -536,7 +538,7 @@ struct ModelsSettingsView: View {
     private func loadRecommendedModels() async {
         loadingRecommended = true
         do {
-            recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo)
+            recommendedModels = try await appState.curatedRegistry.recommendedModels(for: appState.hardwareInfo.modelTier)
         } catch {
             recommendedModels = []
         }

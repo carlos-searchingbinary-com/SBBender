@@ -9,6 +9,13 @@ import Containerization
 @MainActor
 @Observable
 final class AppState {
+    // MARK: - User Preferences
+
+    var showAdvancedFeatures: Bool {
+        get { UserDefaults.standard.bool(forKey: "showAdvancedFeatures") }
+        set { UserDefaults.standard.set(newValue, forKey: "showAdvancedFeatures") }
+    }
+
     // MARK: - Persisted Data
 
     var agents: [AgentConfig] = []
@@ -17,9 +24,21 @@ final class AppState {
     var mcpServerConfigs: [MCPServerConfig] = []
     private(set) var agentTemplates: [AgentTemplate] = []
 
+    // MARK: - Toast Notifications
+
+    var toasts: [ToastMessage] = []
+
+    func addToast(_ toast: ToastMessage) {
+        toasts.append(toast)
+    }
+
+    func dismissToast(id: String) {
+        toasts.removeAll { $0.id == id }
+    }
+
     // MARK: - Navigation
 
-    var selectedSidebarItem: SidebarItem? = .agents
+    var selectedSidebarItem: SidebarItem? = .dashboard
 
     /// Currently browsed skills.sh entry (for skill detail page).
     var browsingSkillsShEntry: SkillsShEntry?
@@ -30,6 +49,8 @@ final class AppState {
     let hardwareInfo = HardwareInfo.detect()
     let curatedRegistry = CuratedRegistry()
     private(set) var persistence: PersistenceService?
+    /// Direct reference to GRDBStorage for knowledge persistence (avoids actor hop in sync code).
+    private var knowledgePersistence: GRDBStorage?
     private var liveAgents: [String: Agent] = [:]
     private var knowledgeIndexers: [String: DocumentIndexer] = [:]
     private var mcpManagers: [String: MCPManager] = [:]
@@ -67,7 +88,7 @@ final class AppState {
             ShellSkill(allowedCommands: ["ls", "cat", "echo", "date", "pwd", "which", "find", "wc", "grep", "head", "tail", "sort", "uniq", "curl", "jq"]),
             AppleScriptSkill(),
             WebFetchSkill(),
-            BrowserSkill(),
+            WebKitBrowserSkill(),
             ShortcutsSkill(),
             // Data
             DataAnalysisSkill(),
@@ -127,12 +148,14 @@ final class AppState {
         do {
             let p = try PersistenceService()
             self.persistence = p
+            self.knowledgePersistence = await p.storage
             self.agents = try await p.loadAgents()
             self.teams = try await p.loadTeams()
             self.toolConfigs = try await p.loadToolConfigs()
             self.mcpServerConfigs = try await p.loadMCPServerConfigs()
         } catch {
             os_log_error("AppState bootstrap failed: \(error)")
+            addToast(ToastMessage(severity: .error, title: "Couldn't load your data", message: "Try restarting the app. Your data should still be safe."))
         }
 
         // Seed baseline skills on first launch
@@ -151,6 +174,7 @@ final class AppState {
             agentTemplates = entries.map { AgentTemplate(from: $0) }
         } catch {
             os_log_error("Failed to load agent templates: \(error)")
+            addToast(ToastMessage(severity: .warning, title: "Starter templates unavailable", message: "You can still create assistants manually."))
         }
 
         // Auto-setup container runtime for OpenClaw skills
@@ -182,6 +206,7 @@ final class AppState {
         } catch {
             containerRuntimeStatus = .initFailed(error.localizedDescription)
             os_log_error("Container runtime setup failed: \(error)")
+            addToast(ToastMessage(severity: .warning, title: "Advanced plugin system unavailable", message: "Your assistants will work fine without it."))
         }
     }
 
@@ -299,12 +324,86 @@ final class AppState {
             hybridWeight: config.knowledgeHybridWeight
         )
         let indexer = DocumentIndexer(config: indexerConfig)
+        // Inject GRDB-backed persistence so knowledge survives restarts
+        if let storage = knowledgePersistence {
+            Task { await indexer.setPersistence(storage) }
+        }
         knowledgeIndexers[config.id] = indexer
         return indexer
     }
 
     func resetKnowledgeIndexer(for agentID: String) {
         knowledgeIndexers.removeValue(forKey: agentID)
+    }
+
+    /// Re-ingest knowledge from persisted file paths when the indexer is empty.
+    /// Tries to load from GRDB persistence first (instant), falls back to file re-ingestion.
+    /// Returns true if rehydration was performed.
+    @discardableResult
+    func rehydrateKnowledge(for config: AgentConfig) async -> Bool {
+        guard config.knowledgeEnabled else { return false }
+
+        let indexer = getOrCreateKnowledgeIndexer(for: config)
+        // Ensure persistence is injected before we try to load from it
+        if let storage = knowledgePersistence {
+            await indexer.setPersistence(storage)
+        }
+        let currentChunks = await indexer.chunkCount
+        guard currentChunks == 0 else { return false }
+
+        // Fast path: load pre-built index from GRDB persistence
+        do {
+            let loaded = try await indexer.loadFromPersistence(agentID: config.id)
+            if loaded { return true }
+        } catch {
+            os_log_error("Persistence load failed for agent \(config.id), falling back to file re-ingestion: \(error)")
+        }
+
+        // Slow path: re-ingest from original files
+        guard let files = try? await persistence?.loadKnowledgeFiles(agentID: config.id),
+              !files.isEmpty else { return false }
+
+        let loader = DocumentLoader()
+
+        for file in files {
+            guard FileManager.default.fileExists(atPath: file.filePath) else { continue }
+
+            do {
+                let ext = file.fileType.lowercased()
+                var docs: [(content: String, title: String, metadata: [String: String])] = []
+
+                switch ext {
+                case "folder":
+                    docs = try loader.loadDirectory(at: file.filePath)
+                case "pdf":
+                    #if canImport(PDFKit)
+                    docs = try loader.loadPDF(at: file.filePath)
+                    #endif
+                case "pptx":
+                    docs = try loader.loadPPTX(at: file.filePath)
+                default:
+                    let result = try loader.loadText(at: file.filePath)
+                    docs = [(content: result.content, title: result.title, metadata: [:])]
+                }
+
+                for doc in docs {
+                    try await indexer.ingest(content: doc.content, title: doc.title, metadata: doc.metadata)
+                }
+            } catch {
+                os_log_error("Rehydration failed for \(file.fileName): \(error)")
+                addToast(ToastMessage(severity: .warning, title: "Couldn't read \(file.fileName)", message: "Try a different file format (PDF, TXT, or Markdown)."))
+            }
+        }
+
+        do {
+            try await indexer.buildIndex()
+            // Persist the rebuilt index for next launch
+            await indexer.persistIndex(agentID: config.id)
+        } catch {
+            os_log_error("Rehydration index build failed: \(error)")
+        }
+
+        return true
     }
 
     // MARK: - MCP Manager Lifecycle
@@ -364,14 +463,6 @@ final class AppState {
             )
         }
 
-        // MCP
-        var mcpManager: MCPManager?
-        do {
-            mcpManager = try await getOrCreateMCPManager(for: config)
-        } catch {
-            os_log_error("MCP connection failed for agent \(config.name): \(error)")
-        }
-
         let agent = AgentFactory.createAgent(
             from: config,
             nativeTools: nativeTools,
@@ -379,9 +470,24 @@ final class AppState {
             customTools: customTools,
             storage: storage,
             knowledge: knowledge,
-            learning: learning,
-            mcpManager: mcpManager
+            learning: learning
         )
+
+        // Connect MCP servers after agent creation
+        if !config.mcpServerIDs.isEmpty {
+            do {
+                if let manager = try await getOrCreateMCPManager(for: config) {
+                    let tools = await manager.allTools()
+                    for tool in tools {
+                        await agent.addTool(tool)
+                    }
+                }
+            } catch {
+                os_log_error("MCP connection failed for agent \(config.name): \(error)")
+                addToast(ToastMessage(severity: .error, title: "A plugin connection failed", message: "Your assistant will work without it. Check Settings to reconnect."))
+            }
+        }
+
         liveAgents[config.id] = agent
         return agent
     }

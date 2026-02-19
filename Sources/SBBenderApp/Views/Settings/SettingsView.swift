@@ -11,10 +11,18 @@ struct SettingsView: View {
         case general = "General"
     }
 
+    private var visibleTabs: [SettingsTab] {
+        if appState.showAdvancedFeatures {
+            return SettingsTab.allCases
+        } else {
+            return SettingsTab.allCases.filter { $0 != .mcpServers }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("Settings", selection: $selectedTab) {
-                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                ForEach(visibleTabs, id: \.self) { tab in
                     Text(tab.rawValue).tag(tab)
                 }
             }
@@ -35,6 +43,11 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .onChange(of: appState.showAdvancedFeatures) { _, newValue in
+            if !newValue && selectedTab == .mcpServers {
+                selectedTab = .models
+            }
+        }
     }
 }
 
@@ -46,12 +59,22 @@ private struct GeneralSettingsContent: View {
     @State private var showClearConfirm = false
 
     var body: some View {
+        @Bindable var state = appState
         Form {
-            Section("Storage") {
-                LabeledContent("Agents", value: "\(appState.agents.count)")
+            Section("Interface") {
+                Toggle("Advanced Features", isOn: $state.showAdvancedFeatures)
+                Text("Show Custom Tools, MCP Servers, and Skill Lab in the sidebar.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section("Data") {
+                LabeledContent("Assistants", value: "\(appState.agents.count)")
                 LabeledContent("Teams", value: "\(appState.teams.count)")
-                LabeledContent("Custom Tools", value: "\(appState.toolConfigs.count)")
-                LabeledContent("MCP Servers", value: "\(appState.mcpServerConfigs.count)")
+                if appState.showAdvancedFeatures {
+                    LabeledContent("Custom Tools", value: "\(appState.toolConfigs.count)")
+                    LabeledContent("MCP Servers", value: "\(appState.mcpServerConfigs.count)")
+                }
 
                 Button("Clear All Data", role: .destructive) {
                     showClearConfirm = true
@@ -71,10 +94,8 @@ private struct GeneralSettingsContent: View {
 
             Section("About") {
                 LabeledContent("App", value: "SBBender")
-                LabeledContent("Runtime", value: "Swift 6.2")
                 LabeledContent("Platform", value: "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
-                LabeledContent("Hardware", value: appState.hardwareInfo.chipName)
-                LabeledContent("Tier", value: appState.hardwareInfo.modelTier.displayName)
+                LabeledContent("Hardware", value: "\(appState.hardwareInfo.chipName) — \(appState.hardwareInfo.totalRAMGB) GB")
             }
         }
         .formStyle(.grouped)
