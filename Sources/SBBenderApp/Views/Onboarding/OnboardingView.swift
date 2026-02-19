@@ -67,29 +67,78 @@ struct OnboardingView: View {
     // MARK: - Welcome Step
 
     private var welcomeStep: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 28) {
             Spacer()
 
             Image(systemName: "sparkles")
                 .font(.system(size: 56))
                 .foregroundStyle(.blue.gradient)
 
-            Text("Welcome to SBBender")
-                .font(.largeTitle.bold())
+            VStack(spacing: 8) {
+                Text("Your personal AI.")
+                    .font(.largeTitle.bold())
+                Text("Runs on your Mac.")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.secondary)
+            }
 
-            Text("Run AI assistants directly on your Mac.\nPrivate by default — your data stays on your device.")
-                .font(.title3)
+            Text("Private by default. No subscriptions. Your data never leaves your device.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: 400)
 
-            // Hardware info card
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                welcomeTile(icon: "doc.text.magnifyingglass", title: "Ask your documents", subtitle: "PDFs, manuals, contracts")
+                welcomeTile(icon: "envelope.badge", title: "Write better emails", subtitle: "Draft, reply, improve")
+                welcomeTile(icon: "calendar.badge.clock", title: "Plan your day", subtitle: "News, calendar, priorities")
+                welcomeTile(icon: "bubble.left.and.bubble.right", title: "Practice any language", subtitle: "Speak, not just study")
+            }
+            .frame(maxWidth: 480)
+
             hardwareCard
-                .padding(.top, 8)
+                .frame(maxWidth: 440)
 
             Spacer()
         }
         .padding(.horizontal, 40)
+    }
+
+    private func welcomeTile(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(.blue)
+                .frame(width: 32)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func tierCapabilityLabel(_ tier: ModelTier) -> String {
+        switch tier {
+        case .small: return "Runs AI locally"
+        case .medium: return "Runs large AI models"
+        case .large: return "Runs the largest AI models"
+        default: return "Runs the largest AI models"
+        }
     }
 
     private var hardwareCard: some View {
@@ -109,7 +158,7 @@ struct OnboardingView: View {
 
             Spacer()
 
-            Text(hw.modelTier.displayName)
+            Text(tierCapabilityLabel(hw.modelTier))
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
