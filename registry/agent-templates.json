@@ -76,5 +76,18 @@
     "enableThinking": false,
     "knowledgeEnabled": false,
     "learningEnabled": true
+  },
+  {
+    "id": "doc-expert",
+    "name": "Documentation Expert",
+    "emoji": "\ud83d\udcda",
+    "gradientHex": ["#6C3483", "#AF7AC5"],
+    "description": "Load PDFs and documents to create a knowledge expert. Ask questions about your docs.",
+    "skillIDs": ["web-fetch", "language-detection", "sentiment"],
+    "instructions": "You are a documentation expert. The user has loaded documents into your knowledge base. Answer questions using ONLY the information from your knowledge documents. Quote relevant passages when possible. If the answer isn't in your documents, say so clearly.",
+    "temperature": 0.3,
+    "enableThinking": true,
+    "knowledgeEnabled": true,
+    "learningEnabled": true
   }
 ]

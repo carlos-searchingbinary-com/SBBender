@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>SBBender Updates</title>
+        <description>SBBender release feed.</description>
+        <language>en</language>
+        <!-- Items will be populated by generate_appcast after each release -->
+    </channel>
+</rss>
