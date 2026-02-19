@@ -4,14 +4,12 @@ import SBBender
 struct OnboardingView: View {
     @Environment(AppState.self) private var appState
     @State private var step: OnboardingStep = .welcome
-    @State private var recommendedModels: [ModelEntry] = []
     @State private var selectedTemplateIDs: Set<String> = []
 
     var onComplete: () -> Void
 
     private enum OnboardingStep: Int, CaseIterable {
         case welcome
-        case model
         case templates
     }
 
@@ -26,8 +24,6 @@ struct OnboardingView: View {
             switch step {
             case .welcome:
                 welcomeStep
-            case .model:
-                modelStep
             case .templates:
                 templatesStep
             }
@@ -64,7 +60,6 @@ struct OnboardingView: View {
     private func stepLabel(_ s: OnboardingStep) -> String {
         switch s {
         case .welcome: "Welcome"
-        case .model: "AI"
         case .templates: "Assistants"
         }
     }
@@ -131,141 +126,6 @@ struct OnboardingView: View {
                 .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
         )
         .frame(maxWidth: 440)
-    }
-
-    // MARK: - Model Step
-
-    private var modelStep: some View {
-        VStack(spacing: 20) {
-            Text("Choose Your AI")
-                .font(.title2.bold())
-
-            Text("Pick the AI that powers your assistants.\nThe best option for your Mac is pre-selected.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
-
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(recommendedModels, id: \.id) { model in
-                        modelCard(model)
-                    }
-                }
-                .padding(.horizontal, 40)
-            }
-        }
-        .padding(.top, 12)
-    }
-
-    private func modelCard(_ model: ModelEntry) -> some View {
-        let isSelected = false
-        let isDownloaded = appState.modelRegistry.isMLXModelDownloaded(model.id)
-        let downloadState = appState.modelRegistry.mlxDownloadState[model.id] ?? .idle
-
-        return Button {
-        } label: {
-            HStack(spacing: 14) {
-                // Selection indicator
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? .blue : .secondary.opacity(0.4))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(model.name)
-                            .font(.subheadline.weight(.semibold))
-
-                        if model.recommendedTier == appState.hardwareInfo.modelTier {
-                            Text("Recommended")
-                                .font(.system(size: 9, weight: .semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.green.opacity(0.15)))
-                                .foregroundStyle(.green)
-                        }
-                    }
-
-                    Text(model.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    // Tags
-                    HStack(spacing: 4) {
-                        Text(friendlySize(model.parameterSize))
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.blue.opacity(0.08)))
-                            .foregroundStyle(.blue)
-
-                        Text(friendlyQuantization(model.quantization))
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.green.opacity(0.08)))
-                            .foregroundStyle(.green)
-
-                        Text("~\(model.ramRequired) GB")
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.orange.opacity(0.08)))
-                            .foregroundStyle(.orange)
-                    }
-                }
-
-                Spacer()
-
-                // Download state
-                if isDownloaded {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.body)
-                } else {
-                    switch downloadState {
-                    case .idle:
-                        if isSelected {
-                            Button("Download") {
-                                Task { await appState.modelRegistry.downloadMLXModel(id: model.id) }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    case .downloading(let progress, _):
-                        VStack(spacing: 2) {
-                            ProgressView(value: progress)
-                                .frame(width: 60)
-                            Text("\(Int(progress * 100))%")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    case .completed:
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    case .error(let msg):
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                            .help(msg)
-                    }
-                }
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.06) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        isSelected ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06),
-                        lineWidth: 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Templates Step
