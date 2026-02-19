@@ -9,8 +9,11 @@ struct SidebarView: View {
         @Bindable var state = appState
         NavigationSplitView {
             List(selection: $state.selectedSidebarItem) {
-                Section("Agents") {
-                    Label("My Agents", systemImage: "brain.head.profile")
+                Label("Dashboard", systemImage: "square.grid.2x2")
+                    .tag(SidebarItem.dashboard)
+
+                Section("AI Assistants") {
+                    Label("My Assistants", systemImage: "brain.head.profile")
                         .tag(SidebarItem.agents)
 
                     // Active agent chats — always visible
@@ -36,17 +39,21 @@ struct SidebarView: View {
                     Label("My Teams", systemImage: "person.3.fill")
                         .tag(SidebarItem.teams)
                 }
-                Section("Skills") {
-                    Label("Marketplace", systemImage: "storefront")
+                Section("Capabilities") {
+                    Label("Capability Store", systemImage: "storefront")
                         .tag(SidebarItem.marketplace)
-                    Label("Skill Lab", systemImage: "flask")
-                        .tag(SidebarItem.skillLab)
+                    if appState.showAdvancedFeatures {
+                        Label("Skill Lab", systemImage: "flask")
+                            .tag(SidebarItem.skillLab)
+                    }
                 }
-                Section("Tools") {
-                    Label("Custom Tools", systemImage: "wrench.and.screwdriver")
-                        .tag(SidebarItem.toolManager)
-                    Label("MCP Servers", systemImage: "server.rack")
-                        .tag(SidebarItem.mcpServers)
+                if appState.showAdvancedFeatures {
+                    Section("Tools") {
+                        Label("Custom Tools", systemImage: "wrench.and.screwdriver")
+                            .tag(SidebarItem.toolManager)
+                        Label("MCP Servers", systemImage: "server.rack")
+                            .tag(SidebarItem.mcpServers)
+                    }
                 }
                 Section {
                     Label("Settings", systemImage: "gear")
@@ -82,6 +89,8 @@ struct SidebarView: View {
     @ViewBuilder
     private var detailView: some View {
         switch appState.selectedSidebarItem {
+        case .dashboard:
+            DashboardView()
         case .agents:
             AgentListView()
         case .agentChat(let id):
