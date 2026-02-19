@@ -7,8 +7,16 @@ struct OnboardingView: View {
     @State private var recommendedModels: [ModelEntry] = []
     @State private var selectedModelID: String?
     @State private var selectedTemplateIDs: Set<String> = []
+    @State private var visionPreloadProgress: Double?
+    @State private var visionPreloadError: String?
 
     var onComplete: () -> Void
+
+    private var isSelectedModelReady: Bool {
+        guard let id = selectedModelID else { return false }
+        return appState.modelRegistry.isMLXModelDownloaded(id)
+            || appState.modelRegistry.mlxDownloadState[id] == .completed
+    }
 
     private enum OnboardingStep: Int, CaseIterable {
         case welcome
@@ -42,6 +50,13 @@ struct OnboardingView: View {
         }
         .frame(minWidth: 600, minHeight: 500)
         .task { await loadRecommendedModels() }
+        .onChange(of: selectedModelID) { _, newID in
+            guard let id = newID,
+                  !appState.modelRegistry.isMLXModelDownloaded(id),
+                  appState.modelRegistry.mlxDownloadState[id] == nil || appState.modelRegistry.mlxDownloadState[id] == .idle
+            else { return }
+            Task { await appState.modelRegistry.downloadMLXModel(id: id) }
+        }
     }
 
     // MARK: - Step Indicator
@@ -84,7 +99,7 @@ struct OnboardingView: View {
             Text("Welcome to SBBender")
                 .font(.largeTitle.bold())
 
-            Text("Build AI agents that run on your Mac using local models.\nNo cloud, no API keys, full privacy.")
+            Text("Run AI assistants on your Mac using local models.\nNo cloud, no API keys, full privacy.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -196,19 +211,19 @@ struct OnboardingView: View {
 
                     // Tags
                     HStack(spacing: 4) {
-                        Text(model.parameterSize)
+                        Text(friendlySize(model.parameterSize))
                             .font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(.blue.opacity(0.08)))
                             .foregroundStyle(.blue)
 
-                        Text(model.quantization)
+                        Text(friendlyQuantization(model.quantization))
                             .font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Capsule().fill(.purple.opacity(0.08)))
-                            .foregroundStyle(.purple)
+                            .background(Capsule().fill(.green.opacity(0.08)))
+                            .foregroundStyle(.green)
 
                         Text("~\(model.ramRequired) GB")
                             .font(.system(size: 9, weight: .medium))
@@ -292,6 +307,32 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 40)
             }
+
+            // Vision model preload progress
+            if let progress = visionPreloadProgress {
+                HStack(spacing: 10) {
+                    Image(systemName: "eye")
+                        .foregroundStyle(.purple)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Downloading vision model...")
+                            .font(.caption.weight(.medium))
+                        ProgressView(value: progress)
+                            .frame(maxWidth: 200)
+                    }
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 8)
+            }
+
+            if let error = visionPreloadError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 40)
+            }
         }
         .padding(.top, 12)
     }
@@ -304,6 +345,10 @@ struct OnboardingView: View {
                 selectedTemplateIDs.remove(template.id)
             } else {
                 selectedTemplateIDs.insert(template.id)
+                // Trigger vision model preload if this template uses vision
+                if template.skillIDs.contains(where: { $0.lowercased().contains("vision") || $0 == "describeImage" }) {
+                    triggerVisionPreload()
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 8) {
@@ -328,7 +373,7 @@ struct OnboardingView: View {
 
                 // Skill count
                 if !template.skillIDs.isEmpty {
-                    Text("\(template.skillIDs.count) skills")
+                    Text("\(template.skillIDs.count) capabilities")
                         .font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -378,6 +423,7 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(step == .model && !isSelectedModelReady)
             }
         }
     }
@@ -386,7 +432,7 @@ struct OnboardingView: View {
 
     private func loadRecommendedModels() async {
         do {
-            let models = try await appState.curatedRegistry.featuredModels(for: appState.hardwareInfo)
+            let models = try await appState.curatedRegistry.featuredModels(for: appState.hardwareInfo.modelTier)
             recommendedModels = models
             // Pre-select the model matching user's tier
             let tier = appState.hardwareInfo.modelTier
@@ -399,6 +445,43 @@ struct OnboardingView: View {
             // Fallback: suggest Qwen3-4B
             selectedModelID = "mlx-community/Qwen3-4B-4bit"
         }
+    }
+
+    private func triggerVisionPreload() {
+        guard visionPreloadProgress == nil else { return } // already started
+        visionPreloadProgress = 0
+        Task {
+            do {
+                if let visionSkill = appState.nativeSkills.compactMap({ $0 as? VisionSkill }).first {
+                    try await visionSkill.preload { progress in
+                        let fraction = progress.fractionCompleted
+                        Task { @MainActor in
+                            visionPreloadProgress = fraction
+                        }
+                    }
+                    visionPreloadProgress = nil // done
+                } else {
+                    visionPreloadProgress = nil // no VisionSkill available
+                }
+            } catch {
+                visionPreloadError = "Vision model download failed: \(error.localizedDescription)"
+                visionPreloadProgress = nil
+            }
+        }
+    }
+
+    private func friendlySize(_ size: String) -> String {
+        let s = size.lowercased().replacingOccurrences(of: "b", with: "")
+        guard let num = Float(s) else { return size }
+        if num <= 4 { return "Small" }
+        if num <= 8 { return "Medium" }
+        return "Large"
+    }
+
+    private func friendlyQuantization(_ q: String) -> String {
+        if q.lowercased().contains("4bit") || q.lowercased().contains("4-bit") { return "Efficient" }
+        if q.lowercased().contains("8bit") || q.lowercased().contains("8-bit") { return "High Quality" }
+        return q
     }
 
     private func completeOnboarding() {
