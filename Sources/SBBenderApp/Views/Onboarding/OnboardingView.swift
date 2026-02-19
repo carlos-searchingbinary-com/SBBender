@@ -318,8 +318,10 @@ struct OnboardingView: View {
     private func completeOnboarding() {
         let tierKey = appState.hardwareInfo.modelTier.rawValue
         let fallbackModelID = "mlx-community/Qwen3-4B-4bit"
+        var firstAgentID: String?
 
-        for template in appState.agentTemplates where selectedTemplateIDs.contains(template.id) {
+        // Save in template list order so the first template the user saw becomes agent[0]
+        for template in appState.agentTemplates.reversed() where selectedTemplateIDs.contains(template.id) {
             let modelID = template.recommendedModelsByTier[tierKey] ?? fallbackModelID
             let config = AgentConfig(
                 name: template.name,
@@ -335,6 +337,7 @@ struct OnboardingView: View {
                 enableThinking: template.enableThinking
             )
             appState.saveAgent(config)
+            firstAgentID = config.id  // last .reversed() write = first in list
         }
 
         if selectedTemplateIDs.isEmpty {
@@ -348,9 +351,16 @@ struct OnboardingView: View {
                 enableThinking: true
             )
             appState.saveAgent(config)
+            firstAgentID = config.id
         }
 
         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+
+        // Land the user directly in their first assistant's chat — not the dashboard
+        if let id = firstAgentID {
+            appState.selectedSidebarItem = .agentChat(id)
+        }
+
         onComplete()
     }
 }
