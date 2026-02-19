@@ -288,20 +288,6 @@ struct OnboardingView: View {
     }
 
 
-    private func friendlySize(_ size: String) -> String {
-        let s = size.lowercased().replacingOccurrences(of: "b", with: "")
-        guard let num = Float(s) else { return size }
-        if num <= 4 { return "Small" }
-        if num <= 8 { return "Medium" }
-        return "Large"
-    }
-
-    private func friendlyQuantization(_ q: String) -> String {
-        if q.lowercased().contains("4bit") || q.lowercased().contains("4-bit") { return "Efficient" }
-        if q.lowercased().contains("8bit") || q.lowercased().contains("8-bit") { return "High Quality" }
-        return q
-    }
-
     private func completeOnboarding() {
         let tierKey = appState.hardwareInfo.modelTier.rawValue
         let fallbackModelID = "mlx-community/Qwen3-4B-4bit"
