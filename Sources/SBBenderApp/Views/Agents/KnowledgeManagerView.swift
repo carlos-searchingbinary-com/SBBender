@@ -22,6 +22,8 @@ struct KnowledgeManagerView: View {
         appState.getOrCreateKnowledgeIndexer(for: agentConfig)
     }
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -29,7 +31,7 @@ struct KnowledgeManagerView: View {
                 VStack(alignment: .leading) {
                     Text("Knowledge Base")
                         .font(.title2.bold())
-                    Text("\(knowledgeFiles.count) documents, \(totalChunks) sections\(indexBuilt ? ", searchable" : "")")
+                    Text("\(knowledgeFiles.count) \(knowledgeFiles.count == 1 ? "file" : "files"), \(totalChunks) sections\(indexBuilt ? " · searchable" : "")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -37,6 +39,8 @@ struct KnowledgeManagerView: View {
                 if isIngesting {
                     ingestionProgressView
                 }
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
             }
             .padding()
 
@@ -267,7 +271,7 @@ struct KnowledgeManagerView: View {
                 }
             } catch {
                 ingestionPhase = nil
-                currentFileName = "Error: \(error.localizedDescription)"
+                currentFileName = "Could not process file — try a different format"
             }
         }
 
@@ -286,7 +290,7 @@ struct KnowledgeManagerView: View {
             try await indexer.buildIndex()
             indexBuilt = await indexer.indexBuilt
         } catch {
-            currentFileName = "Index error: \(error.localizedDescription)"
+            currentFileName = "Could not build search index — try again"
         }
         isIngesting = false
         ingestionPhase = nil

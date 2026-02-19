@@ -86,30 +86,44 @@ struct ChatBubble: View {
 
     @ViewBuilder
     private var messageContent: some View {
-        if isAssistantRole, let (before, chartSpec, after) = extractChart(from: message.content) {
-            if !before.isEmpty {
-                MarkdownView(content: before)
-                    .font(.body)
-            }
+        let (thinking, answer) = extractThinking(from: message.content)
+
+        if isAssistantRole, let (before, chartSpec, after) = extractChart(from: answer) {
+            if let thinking { ThinkingDisclosure(content: thinking) }
+            if !before.isEmpty { MarkdownView(content: before).font(.body) }
             ChartRendererView(spec: chartSpec)
-            if !after.isEmpty {
-                MarkdownView(content: after)
-                    .font(.body)
-            }
+            if !after.isEmpty { MarkdownView(content: after).font(.body) }
         } else if message.role == "assistant-streaming" {
+            if let thinking { ThinkingDisclosure(content: thinking) }
             HStack(spacing: 0) {
-                MarkdownView(content: message.content)
-                    .font(.body)
-                BlinkingCursor()
+                MarkdownView(content: answer).font(.body)
+                if answer.isEmpty { BlinkingCursor() }
             }
         } else if isAssistantRole {
-            MarkdownView(content: message.content)
-                .font(.body)
+            if let thinking { ThinkingDisclosure(content: thinking) }
+            MarkdownView(content: answer).font(.body)
         } else {
             Text(message.content)
                 .textSelection(.enabled)
                 .font(.body)
         }
+    }
+
+    // Splits <think>…</think> from the visible answer
+    private func extractThinking(from text: String) -> (thinking: String?, answer: String) {
+        guard let start = text.range(of: "<think>"),
+              let end = text.range(of: "</think>") else {
+            // Still streaming the thinking block — hide it until </think> arrives
+            if text.contains("<think>") {
+                return ("...", "")
+            }
+            return (nil, text)
+        }
+        let thinking = String(text[start.upperBound..<end.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = String(text[end.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (thinking.isEmpty ? nil : thinking, answer)
     }
 
     private func extractChart(from text: String) -> (String, ChartSpec, String)? {
@@ -169,3 +183,42 @@ struct BlinkingCursor: View {
     }
 }
 
+
+// MARK: - Thinking Disclosure
+
+struct ThinkingDisclosure: View {
+    let content: String
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "brain")
+                        .font(.caption2)
+                    Text("Thinking")
+                        .font(.caption.weight(.medium))
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(content)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.bottom, 4)
+    }
+}
