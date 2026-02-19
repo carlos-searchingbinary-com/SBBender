@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import SBBenderCore
 import os
 
 /// Browser automation skill powered by the Playwright MCP server.
@@ -31,7 +32,7 @@ public actor BrowserSkill: NativeTool, ToolKit {
     private let serverCommand: String
     private let serverArgs: [String]
     private var connected: Bool = false
-    private let _cachedTools = OSAllocatedUnfairLock(initialState: [Tool]())
+    private let _cachedTools = OSAllocatedUnfairLock<[SBTool]>(initialState: [])
 
     /// Create a BrowserSkill.
     ///
@@ -126,12 +127,12 @@ public actor BrowserSkill: NativeTool, ToolKit {
     ///
     /// Returns cached MCP tools. Empty until `connect()` is called.
     /// Thread-safe via `OSAllocatedUnfairLock`.
-    public nonisolated var tools: [Tool] {
+    public nonisolated var tools: [SBTool] {
         _cachedTools.withLock { $0 }
     }
 
     /// Asynchronously get the current browser tools.
-    public func fetchTools() -> [Tool] {
+    public func fetchTools() -> [SBTool] {
         _cachedTools.withLock { $0 }
     }
 
@@ -151,9 +152,9 @@ public actor BrowserSkill: NativeTool, ToolKit {
         )
     }
 
-    public nonisolated func asTool() -> Tool {
+    public nonisolated func asTool() -> SBTool {
         let skill = self
-        return Tool(
+        return SBTool(
             name: "browser_navigate_and_snapshot",
             description: "Navigate to a URL and return the page content as an accessibility snapshot",
             parameters: toolParameters
