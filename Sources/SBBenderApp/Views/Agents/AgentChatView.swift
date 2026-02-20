@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct AgentChatView: View {
     let agentID: String
+    var initialSessionID: String? = nil
     @Environment(AppState.self) private var appState
     @State private var viewModel = AgentChatViewModel()
     @State private var showRightPanel = true
@@ -13,6 +14,7 @@ struct AgentChatView: View {
     @State private var showClearConfirmation = false
     @State private var knowledgeChunkCount: Int = 0
     @State private var knowledgeDocCount: Int = 0
+    @State private var showConversationPanel = false
 
     private var config: AgentConfig? {
         appState.agentConfig(for: agentID)
@@ -24,8 +26,56 @@ struct AgentChatView: View {
 
     var body: some View {
         HSplitView {
-            chatPanel
-                .frame(minWidth: 480)
+            ZStack(alignment: .leading) {
+                chatPanel
+
+                // Scrim — dims the chat when panel is open
+                Color.black.opacity(showConversationPanel ? 0.2 : 0)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(showConversationPanel)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            showConversationPanel = false
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: showConversationPanel)
+
+                // Slide-in conversation panel
+                ConversationSlidePanel(
+                    sessions: viewModel.sessions,
+                    currentSessionID: viewModel.currentSessionID,
+                    onSelect: { sessionID in
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            showConversationPanel = false
+                        }
+                        Task {
+                            let storage = await appState.persistence?.storage
+                            if let agent { await agent.setSessionID(sessionID) }
+                            await viewModel.switchSession(to: sessionID, storage: storage)
+                        }
+                    },
+                    onNewChat: {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            showConversationPanel = false
+                        }
+                        Task { await newChat() }
+                    },
+                    onDelete: { sessionID in
+                        Task {
+                            let storage = await appState.persistence?.storage
+                            await viewModel.deleteSession(sessionID, storage: storage, agentID: agentID)
+                        }
+                    },
+                    onDismiss: {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                            showConversationPanel = false
+                        }
+                    }
+                )
+                .offset(x: showConversationPanel ? 0 : -260)
+                .animation(.spring(response: 0.32, dampingFraction: 0.82), value: showConversationPanel)
+            }
+            .frame(minWidth: 480)
 
             if showRightPanel {
                 rightPanel
@@ -106,6 +156,18 @@ struct AgentChatView: View {
             }
             .buttonStyle(.plain)
             .help("Back to My Assistants")
+
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    showConversationPanel.toggle()
+                }
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.body.weight(.regular))
+                    .foregroundStyle(showConversationPanel ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Conversations")
 
             AgentAvatar(emoji: config.emoji, gradientHex: config.gradientHex, size: 30)
 
@@ -467,14 +529,26 @@ struct AgentChatView: View {
                         )
                         .id("thinking-bubble")
                     }
+
+                    // Invisible bottom anchor for reliable scrolling
+                    Color.clear.frame(height: 1).id("scroll-bottom")
                 }
                 .padding()
             }
+            // Scroll when a new message is added
             .onChange(of: viewModel.messages.count) { _, _ in
-                if let last = viewModel.messages.last {
-                    withAnimation {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("scroll-bottom", anchor: .bottom)
+                }
+            }
+            // Scroll as streaming tokens arrive (content grows in-place)
+            .onChange(of: viewModel.messages.last?.content) { _, _ in
+                proxy.scrollTo("scroll-bottom", anchor: .bottom)
+            }
+            // Scroll when thinking bubble appears or generation ends
+            .onChange(of: viewModel.isGenerating) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("scroll-bottom", anchor: .bottom)
                 }
             }
         }
@@ -586,11 +660,11 @@ struct AgentChatView: View {
             if let config {
                 VStack(alignment: .leading, spacing: 16) {
                     // AI Engine
-                    infoSection(title: "AI Engine", icon: "cpu") {
+                    infoSection(title: "AI Model", icon: "cpu") {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(ProviderType(rawValue: config.providerType)?.displayName ?? config.providerType)
                                 .font(.subheadline.weight(.medium))
-                            Text(config.modelID.components(separatedBy: "/").last ?? config.modelID)
+                            Text(friendlyModelName(config.modelID))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -803,44 +877,6 @@ struct AgentChatView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
-            if viewModel.sessions.count > 1 {
-                Menu {
-                    ForEach(viewModel.sessions) { session in
-                        Button {
-                            Task {
-                                let storage = await appState.persistence?.storage
-                                if let agent { await agent.setSessionID(session.id) }
-                                await viewModel.switchSession(to: session.id, storage: storage)
-                            }
-                        } label: {
-                            HStack {
-                                Text(session.title)
-                                if session.id == viewModel.currentSessionID {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                    Divider()
-                    ForEach(viewModel.sessions) { session in
-                        if session.id != viewModel.currentSessionID {
-                            Button(role: .destructive) {
-                                Task {
-                                    let storage = await appState.persistence?.storage
-                                    await viewModel.deleteSession(session.id, storage: storage, agentID: agentID)
-                                }
-                            } label: {
-                                Label("Delete \"\(session.title)\"", systemImage: "trash")
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .help("Chat History")
-            }
-        }
-        ToolbarItem(placement: .automatic) {
             Button {
                 showEditSheet = true
             } label: {
@@ -872,6 +908,10 @@ struct AgentChatView: View {
         guard let config else { return }
         self.agent = await appState.getOrCreateLiveAgent(for: config)
         let storage = await appState.persistence?.storage
+        // Pre-select a specific session if launched from the sidebar conversation list
+        if let sid = initialSessionID {
+            viewModel.currentSessionID = sid
+        }
         await viewModel.loadConversation(storage: storage, agentID: config.id)
 
         // Auto-rehydrate knowledge if indexer is empty but files are persisted
@@ -903,17 +943,20 @@ struct AgentChatView: View {
     private func send() async {
         guard let agent else { return }
         let providerName = config.flatMap { ProviderType(rawValue: $0.providerType)?.displayName }
-        let isFirstMessage = viewModel.messages.count(where: { $0.role == "user" }) <= 1
+        let isFirstMessage = viewModel.messages.count(where: { $0.role == "user" }) == 0
         await viewModel.sendMessage(
             agent: agent,
             agentName: config?.name ?? "Assistant",
             providerType: providerName,
             modelID: config?.modelID
         )
-        // Auto-title session from first user message
-        if isFirstMessage, let agentID = config?.id {
+        // After the first exchange, generate a short LLM title in the background
+        if isFirstMessage, let config {
             let storage = await appState.persistence?.storage
-            await viewModel.updateSessionTitle(storage: storage, agentID: agentID)
+            let userMsg = viewModel.messages.first(where: { $0.role == "user" })?.content ?? ""
+            let assistantMsg = viewModel.messages.first(where: { $0.role == "assistant" })?.content ?? ""
+            let title = await appState.generateTitle(for: config, userMessage: userMsg, assistantReply: assistantMsg)
+            await viewModel.updateSessionTitle(to: title, storage: storage, agentID: config.id)
         }
     }
 
@@ -935,7 +978,21 @@ struct AgentChatView: View {
             for url in urls {
                 do {
                     let result = try loader.loadText(at: url.path)
-                    try await indexer.ingest(content: result.content, title: result.title)
+
+                    // Enrich metadata with document date and family for versioning.
+                    let docDate = DocumentLoader.extractDocumentDate(
+                        from: url.lastPathComponent,
+                        firstPageText: String(result.content.prefix(1_000)),
+                        fileURL: url
+                    )
+                    let docFamily = DocumentLoader.extractDocumentFamily(from: url.lastPathComponent)
+                    var meta: [String: String] = [:]
+                    if let date = docDate {
+                        meta["documentDate"] = ISO8601DateFormatter().string(from: date)
+                    }
+                    meta["documentFamily"] = docFamily
+
+                    try await indexer.ingest(content: result.content, title: result.title, metadata: meta)
                     try await indexer.buildIndex()
 
                     let entry = KnowledgeFileEntry(
@@ -1137,6 +1194,202 @@ struct AgentChatView: View {
         }
 
         return Array(suggestions.prefix(3))
+    }
+}
+
+// MARK: - Conversation Slide Panel
+
+private struct ConversationSlidePanel: View {
+    let sessions: [SessionSummary]
+    let currentSessionID: String?
+    let onSelect: (String) -> Void
+    let onNewChat: () -> Void
+    let onDelete: (String) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            panelHeader
+            Divider()
+            panelList
+        }
+        .frame(width: 260)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(.separator)
+                .frame(width: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 16, x: 4, y: 0)
+    }
+
+    private var panelHeader: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("Conversations")
+                    .font(.headline)
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .background(Circle().fill(.quaternary))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onNewChat) {
+                Label("New Chat", systemImage: "square.and.pencil")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private var panelList: some View {
+        if sessions.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "bubble.left")
+                    .font(.largeTitle)
+                    .foregroundStyle(.tertiary)
+                Text("No conversations yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                    ForEach(groupedSessions, id: \.key) { group in
+                        Section {
+                            ForEach(group.sessions) { session in
+                                ConversationSessionRow(
+                                    session: session,
+                                    isActive: session.id == currentSessionID,
+                                    onSelect: { onSelect(session.id) },
+                                    onDelete: { onDelete(session.id) }
+                                )
+                            }
+                        } header: {
+                            Text(group.key)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.regularMaterial)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private struct DateGroup {
+        let key: String
+        let sessions: [SessionSummary]
+    }
+
+    private var groupedSessions: [DateGroup] {
+        let calendar = Calendar.current
+        let now = Date()
+        var today: [SessionSummary] = []
+        var yesterday: [SessionSummary] = []
+        var thisWeek: [SessionSummary] = []
+        var older: [SessionSummary] = []
+
+        for session in sessions {
+            if calendar.isDateInToday(session.updatedAt) {
+                today.append(session)
+            } else if calendar.isDateInYesterday(session.updatedAt) {
+                yesterday.append(session)
+            } else if let days = calendar.dateComponents([.day], from: session.updatedAt, to: now).day, days < 7 {
+                thisWeek.append(session)
+            } else {
+                older.append(session)
+            }
+        }
+
+        var groups: [DateGroup] = []
+        if !today.isEmpty    { groups.append(DateGroup(key: "Today",     sessions: today)) }
+        if !yesterday.isEmpty { groups.append(DateGroup(key: "Yesterday", sessions: yesterday)) }
+        if !thisWeek.isEmpty  { groups.append(DateGroup(key: "This Week", sessions: thisWeek)) }
+        if !older.isEmpty     { groups.append(DateGroup(key: "Older",     sessions: older)) }
+        return groups
+    }
+}
+
+private struct ConversationSessionRow: View {
+    let session: SessionSummary
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.title)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+                    Text(session.updatedAt, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if isHovered {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(
+                        isActive
+                            ? Color.accentColor.opacity(0.12)
+                            : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                    )
+                    .padding(.horizontal, 8)
+            )
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if isActive {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.accentColor)
+                    .frame(width: 3, height: 22)
+                    .padding(.leading, 4)
+            }
+        }
+        .onHover { val in
+            withAnimation(.easeInOut(duration: 0.12)) { isHovered = val }
+        }
+        .contextMenu {
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 

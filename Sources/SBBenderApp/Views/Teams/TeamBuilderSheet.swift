@@ -85,7 +85,7 @@ struct TeamBuilderSheet: View {
                                 AgentAvatar(emoji: agent.emoji, gradientHex: agent.gradientHex, size: 28)
                                 VStack(alignment: .leading) {
                                     Text(agent.name)
-                                    Text(agent.modelID.components(separatedBy: "/").last ?? agent.modelID)
+                                    Text(agent.enabledSkillIDs.isEmpty ? "General" : "\(agent.enabledSkillIDs.count) capabilities")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }

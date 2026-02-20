@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import SBBenderCore
 
 @Suite("DocumentIndexer Tests")
@@ -282,6 +283,108 @@ struct DocumentIndexerTests {
 
             let count = await indexer.chunkCount
             #expect(count == 3)
+        }
+    }
+
+    // MARK: - HyDE (Hypothetical Document Embeddings)
+
+    @Suite("HyDE Retrieval")
+    struct HyDETests {
+
+        /// Documents use clinical/formal vocabulary; the query uses colloquial phrasing.
+        /// This is the core HyDE use case: bridging vocabulary gaps.
+        private static let clinicalDocs = [
+            "Myocardial infarction occurs when coronary artery occlusion interrupts perfusion of cardiac muscle, causing irreversible ischemic necrosis.",
+            "Cerebrovascular accident results from thrombotic or hemorrhagic interruption of cerebral blood supply, producing neurological deficits.",
+            "Quarterly revenue grew 14% year-over-year driven by enterprise software subscription renewals and expanding operating margins.",
+        ]
+
+        @Test("HyDE generator is called during search")
+        func generatorIsCalled() async throws {
+            let indexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph))
+            for doc in Self.clinicalDocs {
+                try await indexer.insert(content: doc, metadata: ["title": "Test"])
+            }
+
+            let called = OSAllocatedUnfairLock(initialState: false)
+            await indexer.setHyDEGenerator { _ in
+                called.withLock { $0 = true }
+                return "A patient had a heart attack and needed emergency cardiac treatment."
+            }
+
+            _ = try await indexer.hybridSearch(query: "heart attack treatment", limit: 2)
+            #expect(called.withLock { $0 }, "HyDE generator must be invoked during hybridSearch")
+        }
+
+        @Test("HyDE improves recall for vocabulary-mismatch queries")
+        func hydeImprovesRecall() async throws {
+            // This test checks that HyDE can surface a clinically-described chunk
+            // when the user uses lay vocabulary — without HyDE the vocabulary gap
+            // between "heart attack" and "myocardial infarction" may lower the rank.
+
+            // Build indexer WITHOUT HyDE
+            let baseIndexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph, enableReranking: false))
+            for doc in Self.clinicalDocs {
+                try await baseIndexer.insert(content: doc, metadata: ["title": "Test"])
+            }
+            let baseResults = try await baseIndexer.hybridSearch(query: "heart attack", limit: 3)
+            let baseRank = baseResults.firstIndex { $0.content.contains("Myocardial") }
+
+            // Build indexer WITH HyDE — hypothesis uses exact clinical vocabulary
+            let hydeIndexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph, enableReranking: false))
+            for doc in Self.clinicalDocs {
+                try await hydeIndexer.insert(content: doc, metadata: ["title": "Test"])
+            }
+            await hydeIndexer.setHyDEGenerator { _ in
+                // Hypothesis deliberately uses clinical vocabulary present in the document
+                return "Myocardial infarction results from coronary artery occlusion causing cardiac ischemia and necrosis."
+            }
+            let hydeResults = try await hydeIndexer.hybridSearch(query: "heart attack", limit: 3)
+            let hydeRank = hydeResults.firstIndex { $0.content.contains("Myocardial") }
+
+            // HyDE must find the clinical chunk; it should rank at least as well as baseline
+            #expect(hydeRank != nil, "HyDE search must surface the myocardial infarction chunk")
+            if let base = baseRank, let hyde = hydeRank {
+                #expect(hyde <= base, "HyDE rank (\(hyde)) should be ≤ baseline rank (\(base))")
+            }
+        }
+
+        @Test("Nil generator falls back to standard retrieval without error")
+        func nilGeneratorFallsBack() async throws {
+            let indexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph))
+            try await indexer.insert(content: "Swift programming language by Apple.", metadata: ["title": "Swift"])
+            try await indexer.insert(content: "Python used in data science.", metadata: ["title": "Python"])
+
+            // Explicitly no HyDE generator
+            await indexer.setHyDEGenerator(nil)
+
+            let results = try await indexer.hybridSearch(query: "Apple programming", limit: 2)
+            #expect(!results.isEmpty)
+            #expect(results[0].content.contains("Swift"))
+        }
+
+        @Test("Empty hypothesis from generator is ignored gracefully")
+        func emptyHypothesisIgnored() async throws {
+            let indexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph))
+            try await indexer.insert(content: "Swift programming language.", metadata: ["title": "Swift"])
+
+            // Generator returns empty — should not crash, should still return results
+            await indexer.setHyDEGenerator { _ in return "" }
+
+            let results = try await indexer.hybridSearch(query: "Swift", limit: 1)
+            #expect(!results.isEmpty)
+        }
+
+        @Test("Nil-returning generator falls back to standard retrieval")
+        func nilReturningGeneratorFallsBack() async throws {
+            let indexer = DocumentIndexer(config: .init(chunkingStrategy: .paragraph))
+            try await indexer.insert(content: "Rust memory safety systems programming.", metadata: ["title": "Rust"])
+
+            await indexer.setHyDEGenerator { _ in return nil }
+
+            let results = try await indexer.hybridSearch(query: "memory safety", limit: 1)
+            #expect(!results.isEmpty)
+            #expect(results[0].content.contains("Rust"))
         }
     }
 

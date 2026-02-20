@@ -17,6 +17,8 @@ struct KnowledgeManagerView: View {
     @State private var indexBuilt = false
     @State private var processingFileIndex: Int = -1
     @State private var totalFilesToProcess: Int = 0
+    @State private var documentFamilyGroups: [String: [KnowledgeFileEntry]] = [:]
+    @State private var expandedFamilies: Set<String> = []
 
     private var indexer: DocumentIndexer {
         appState.getOrCreateKnowledgeIndexer(for: agentConfig)
@@ -93,6 +95,9 @@ struct KnowledgeManagerView: View {
                             Task { await deleteFiles(at: indices) }
                         }
                     }
+
+                    // Version warnings: shown when multiple files share the same document family.
+                    versionWarningSection
                 }
                 .frame(minWidth: 300)
 
@@ -188,6 +193,69 @@ struct KnowledgeManagerView: View {
         }
     }
 
+    // MARK: - Version Warning UI
+
+    /// Shows a warning banner for each document family that has more than one version indexed.
+    @ViewBuilder
+    private var versionWarningSection: some View {
+        let multiVersionFamilies = documentFamilyGroups.filter { $0.value.count > 1 }
+        if !multiVersionFamilies.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(multiVersionFamilies.keys.sorted()), id: \.self) { family in
+                    let files = multiVersionFamilies[family] ?? []
+                    let isExpanded = expandedFamilies.contains(family)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button {
+                                if isExpanded {
+                                    expandedFamilies.remove(family)
+                                } else {
+                                    expandedFamilies.insert(family)
+                                }
+                            } label: {
+                                HStack(alignment: .top, spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                        .font(.caption)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Multiple versions detected")
+                                            .font(.caption.bold())
+                                        Text("\"\(family.capitalized)\" has \(files.count) versions indexed. Older versions are automatically deprioritized.")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+
+                            if isExpanded {
+                                Divider()
+                                ForEach(files) { file in
+                                    HStack {
+                                        Text(file.fileName)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                    }
+                                }
+                                Text("Remove outdated versions to save index space.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 2)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+    }
+
     // MARK: - Actions
 
     private func loadState() async {
@@ -196,6 +264,19 @@ struct KnowledgeManagerView: View {
         }
         totalChunks = await indexer.chunkCount
         indexBuilt = await indexer.indexBuilt
+        computeDocumentFamilyGroups()
+    }
+
+    /// Recomputes the family groupings from the current knowledgeFiles list.
+    /// Uses `DocumentLoader.extractDocumentFamily` so grouping is consistent with ingest time.
+    private func computeDocumentFamilyGroups() {
+        var groups: [String: [KnowledgeFileEntry]] = [:]
+        for file in knowledgeFiles {
+            let family = DocumentLoader.extractDocumentFamily(from: file.fileName)
+            guard family != "unknown" else { continue }
+            groups[family, default: []].append(file)
+        }
+        documentFamilyGroups = groups
     }
 
     private func ingestFiles(_ urls: [URL]) async {
@@ -223,7 +304,19 @@ struct KnowledgeManagerView: View {
                     ingestionPhase = .chunking
                     let docs = try loader.loadDirectory(at: url.path)
                     for doc in docs {
-                        try await indexer.ingest(content: doc.content, title: doc.title, metadata: doc.metadata)
+                        // Each file inside the directory gets its own date/family extraction.
+                        let titleForExtraction = doc.title
+                        let docDate = DocumentLoader.extractDocumentDate(
+                            from: titleForExtraction,
+                            firstPageText: String(doc.content.prefix(1_000))
+                        )
+                        let docFamily = DocumentLoader.extractDocumentFamily(from: titleForExtraction)
+                        var enrichedMeta = doc.metadata
+                        if let date = docDate {
+                            enrichedMeta["documentDate"] = ISO8601DateFormatter().string(from: date)
+                        }
+                        enrichedMeta["documentFamily"] = docFamily
+                        try await indexer.ingest(content: doc.content, title: doc.title, metadata: enrichedMeta)
                     }
                     let chunkCount = await indexer.chunkCount
                     let entry = KnowledgeFileEntry(
@@ -253,8 +346,21 @@ struct KnowledgeManagerView: View {
                         docs = [(content: result.content, title: result.title, metadata: [:])]
                     }
 
+                    // Compute date/family once per dropped file (not per page/slide).
+                    let docDate = DocumentLoader.extractDocumentDate(
+                        from: url.lastPathComponent,
+                        firstPageText: docs.first.map { String($0.content.prefix(1_000)) } ?? "",
+                        fileURL: url
+                    )
+                    let docFamily = DocumentLoader.extractDocumentFamily(from: url.lastPathComponent)
+
                     for doc in docs {
-                        try await indexer.ingest(content: doc.content, title: doc.title, metadata: doc.metadata)
+                        var enrichedMeta = doc.metadata
+                        if let date = docDate {
+                            enrichedMeta["documentDate"] = ISO8601DateFormatter().string(from: date)
+                        }
+                        enrichedMeta["documentFamily"] = docFamily
+                        try await indexer.ingest(content: doc.content, title: doc.title, metadata: enrichedMeta)
                     }
 
                     let chunkCount = await indexer.chunkCount
@@ -281,6 +387,7 @@ struct KnowledgeManagerView: View {
         ingestionPhase = nil
         currentFileName = ""
         totalFilesToProcess = 0
+        computeDocumentFamilyGroups()
     }
 
     private func rebuildIndex() async {
@@ -316,6 +423,7 @@ struct KnowledgeManagerView: View {
         // Reset indexer since documents changed
         appState.resetKnowledgeIndexer(for: agentConfig.id)
         indexBuilt = false
+        computeDocumentFamilyGroups()
     }
 
     private func clearAll() async {
@@ -324,6 +432,7 @@ struct KnowledgeManagerView: View {
         appState.resetKnowledgeIndexer(for: agentConfig.id)
         totalChunks = 0
         indexBuilt = false
+        documentFamilyGroups = [:]
         searchResults = []
     }
 

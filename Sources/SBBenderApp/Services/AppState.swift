@@ -6,6 +6,10 @@ import SBBender
 import Containerization
 #endif
 
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
 @MainActor
 @Observable
 final class AppState {
@@ -55,6 +59,10 @@ final class AppState {
     private var knowledgeIndexers: [String: DocumentIndexer] = [:]
     private var mcpManagers: [String: MCPManager] = [:]
     private var _skillsShClient: SkillsShClient?
+
+    /// MLXProvider instances keyed by modelID so the loaded model survives agent resets.
+    /// Never cleared — the model stays in memory for the lifetime of the app.
+    private var mlxProviders: [String: MLXProvider] = [:]
 
     /// Lazily created skills.sh client.
     var skillsShClient: SkillsShClient {
@@ -328,8 +336,66 @@ final class AppState {
         if let storage = knowledgePersistence {
             Task { await indexer.setPersistence(storage) }
         }
+        // Inject contextual enricher — uses Apple NLP entities + FoundationModel on macOS 26+
+        let enricher = buildContextualEnricher(for: config)
+        Task { await indexer.setContextualEnricher(enricher) }
+        // Inject HyDE generator — generates hypothetical answers to boost recall at query time
+        let hydeGen = buildHyDEGenerator(for: config)
+        Task { await indexer.setHyDEGenerator(hydeGen) }
         knowledgeIndexers[config.id] = indexer
         return indexer
+    }
+
+    /// Build a ``ContextualEnricher`` appropriate for the current OS.
+    ///
+    /// On macOS 26+ the enricher uses `LanguageModelSession` (Apple Intelligence)
+    /// to generate a 1-3 sentence situating description for each chunk.
+    /// On earlier OS versions the enricher still provides Apple NLP entity
+    /// extraction; it just skips the LLM-generated context description.
+    private func buildContextualEnricher(for config: AgentConfig) -> ContextualEnricher {
+#if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            return ContextualEnricher(contextGenerator: { docPreview, chunkContent in
+                let prompt = """
+                <document>\(docPreview)</document>
+                Here is the chunk we want to situate within the whole document:
+                <chunk>\(chunkContent)</chunk>
+                Give a short succinct context (1-3 sentences) to situate this chunk within the overall document for improving search retrieval. Answer only with the context and nothing else.
+                """
+                let session = LanguageModelSession()
+                let response = try? await session.respond(to: prompt)
+                return response?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            })
+        }
+#endif
+        // Without FoundationModels: still provide Apple NLP entity extraction.
+        return ContextualEnricher()
+    }
+
+    /// Build a HyDE generator appropriate for the current OS.
+    ///
+    /// On macOS 26+ uses `LanguageModelSession` (Apple Intelligence) to write a
+    /// short hypothetical document passage that answers the query.  This passage is
+    /// embedded at query time and searched alongside the real query for a significant
+    /// recall boost (typically +20–30% on factual corpora).
+    ///
+    /// On earlier OS versions HyDE is skipped — returns `nil` so the indexer falls
+    /// back to standard dual-signal (vector + BM25) retrieval.
+    private func buildHyDEGenerator(for config: AgentConfig) -> DocumentIndexer.HyDEGenerator? {
+#if canImport(FoundationModels)
+        if #available(macOS 26, *) {
+            return { query in
+                let prompt = """
+                Write a short passage (2-4 sentences) from a document that would directly answer this question: \(query)
+                Write only the passage text as it might appear in the document. Be specific and factual. No preamble, no quotes.
+                """
+                let session = LanguageModelSession()
+                let response = try? await session.respond(to: prompt)
+                return response?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+#endif
+        return nil
     }
 
     func resetKnowledgeIndexer(for agentID: String) {
@@ -386,8 +452,23 @@ final class AppState {
                     docs = [(content: result.content, title: result.title, metadata: [:])]
                 }
 
+                // Enrich metadata with document date and family for versioning support.
+                let fileURL = URL(fileURLWithPath: file.filePath)
+                let firstPageText = docs.first.map { String($0.content.prefix(1_000)) } ?? ""
+                let docDate = DocumentLoader.extractDocumentDate(
+                    from: file.fileName,
+                    firstPageText: firstPageText,
+                    fileURL: fileURL
+                )
+                let docFamily = DocumentLoader.extractDocumentFamily(from: file.fileName)
+
                 for doc in docs {
-                    try await indexer.ingest(content: doc.content, title: doc.title, metadata: doc.metadata)
+                    var enrichedMeta = doc.metadata
+                    if let date = docDate {
+                        enrichedMeta["documentDate"] = ISO8601DateFormatter().string(from: date)
+                    }
+                    enrichedMeta["documentFamily"] = docFamily
+                    try await indexer.ingest(content: doc.content, title: doc.title, metadata: enrichedMeta)
                 }
             } catch {
                 os_log_error("Rehydration failed for \(file.fileName): \(error)")
@@ -470,7 +551,8 @@ final class AppState {
             customTools: customTools,
             storage: storage,
             knowledge: knowledge,
-            learning: learning
+            learning: learning,
+            mlxProviderCache: &mlxProviders
         )
 
         // Connect MCP servers after agent creation
@@ -610,6 +692,41 @@ final class AppState {
         )
         _clawHubManager = manager
         return manager
+    }
+
+    // MARK: - Title Generation
+
+    /// Generate a short conversational title using the agent's already-loaded model.
+    /// For MLX agents this is free — the model is already in GPU memory.
+    /// For cloud providers a lightweight call is made. Falls back to first 50 chars on failure.
+    func generateTitle(for config: AgentConfig, userMessage: String, assistantReply: String) async -> String {
+        let fallback = String(userMessage.prefix(50))
+        let providerType = ProviderType(rawValue: config.providerType) ?? .mlx
+
+        let provider: any ModelProvider
+        if providerType == .mlx {
+            // Never trigger a fresh model load just for a title — only use if already cached.
+            guard let existing = mlxProviders[config.modelID] else { return fallback }
+            provider = existing
+        } else {
+            provider = AgentFactory.createProvider(type: providerType, modelID: config.modelID)
+        }
+
+        let titleConfig = AgentConfiguration(
+            name: "TitleGen",
+            instructions: "You generate ultra-short chat titles. Reply with ONLY 3–5 words — no punctuation, no quotes, no explanation.",
+            generationConfig: GenerationConfig(maxTokens: 15, temperature: 0.3)
+        )
+        // No storage — this agent is ephemeral
+        let titleAgent = Agent(configuration: titleConfig, model: provider)
+
+        let userPreview = String(userMessage.prefix(300))
+        let replyPreview = assistantReply.isEmpty ? "" : " Assistant: \(String(assistantReply.prefix(200)))"
+        let prompt = "Conversation — User: \(userPreview)\(replyPreview)\n\nTitle:"
+
+        let result = try? await titleAgent.run(prompt)
+        let generated = result?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return generated.isEmpty ? fallback : generated
     }
 
     // MARK: - Logging

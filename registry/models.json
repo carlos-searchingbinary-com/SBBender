@@ -267,8 +267,8 @@
     "featured": true
   },
   {
-    "id": "claude-sonnet-4-5-20250929",
-    "name": "Claude 4.5 Sonnet",
+    "id": "claude-sonnet-4-6",
+    "name": "Claude Sonnet 4.6",
     "provider": "anthropic",
     "parameterSize": "cloud",
     "quantization": "none",
@@ -295,8 +295,8 @@
     "featured": false
   },
   {
-    "id": "gpt-4.1-mini",
-    "name": "GPT-4.1 Mini",
+    "id": "gpt-5-nano",
+    "name": "GPT-5 Nano",
     "provider": "openai",
     "parameterSize": "cloud",
     "quantization": "none",
@@ -304,9 +304,65 @@
     "minTier": "small",
     "recommendedTier": "small",
     "ramRequired": 0,
-    "description": "OpenAI's fast, affordable model with tool calling",
+    "description": "Fastest, most cost-efficient version of GPT-5",
     "tags": ["tool-calling", "fast", "cloud"],
     "featured": true
+  },
+  {
+    "id": "gpt-5-mini",
+    "name": "GPT-5 Mini",
+    "provider": "openai",
+    "parameterSize": "cloud",
+    "quantization": "none",
+    "category": "general",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "Faster, cost-efficient version of GPT-5 for well-defined tasks",
+    "tags": ["tool-calling", "fast", "cloud", "default"],
+    "featured": true
+  },
+  {
+    "id": "gpt-5",
+    "name": "GPT-5",
+    "provider": "openai",
+    "parameterSize": "cloud",
+    "quantization": "none",
+    "category": "general",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "Intelligent reasoning model for coding and agentic tasks",
+    "tags": ["tool-calling", "reasoning", "coding", "cloud"],
+    "featured": true
+  },
+  {
+    "id": "gpt-5.2",
+    "name": "GPT-5.2",
+    "provider": "openai",
+    "parameterSize": "cloud",
+    "quantization": "none",
+    "category": "general",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "OpenAI's best model for coding and agentic tasks",
+    "tags": ["tool-calling", "reasoning", "coding", "cloud"],
+    "featured": true
+  },
+  {
+    "id": "gpt-5.2-pro",
+    "name": "GPT-5.2 Pro",
+    "provider": "openai",
+    "parameterSize": "cloud",
+    "quantization": "none",
+    "category": "reasoning",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "Smarter and more precise responses, extended reasoning",
+    "tags": ["tool-calling", "thinking", "reasoning", "cloud"],
+    "featured": false
   },
   {
     "id": "gpt-4.1",
@@ -318,22 +374,8 @@
     "minTier": "small",
     "recommendedTier": "small",
     "ramRequired": 0,
-    "description": "OpenAI's flagship model, best for coding and instruction following",
-    "tags": ["tool-calling", "coding", "cloud", "default"],
-    "featured": true
-  },
-  {
-    "id": "o4-mini",
-    "name": "o4-mini",
-    "provider": "openai",
-    "parameterSize": "cloud",
-    "quantization": "none",
-    "category": "reasoning",
-    "minTier": "small",
-    "recommendedTier": "small",
-    "ramRequired": 0,
-    "description": "OpenAI's reasoning model optimized for speed",
-    "tags": ["thinking", "reasoning", "cloud"],
+    "description": "Smartest non-reasoning model, previous generation",
+    "tags": ["tool-calling", "coding", "cloud"],
     "featured": false
   },
   {
@@ -362,6 +404,34 @@
     "ramRequired": 0,
     "description": "Qwen3 32B with tool calling at Groq speed",
     "tags": ["tool-calling", "thinking", "reasoning", "cloud"],
+    "featured": false
+  },
+  {
+    "id": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "name": "Llama 4 Maverick 17B",
+    "provider": "groq",
+    "parameterSize": "17B",
+    "quantization": "none",
+    "category": "general",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "Meta's Llama 4 Maverick MoE model at Groq speed",
+    "tags": ["tool-calling", "fast", "cloud"],
+    "featured": false
+  },
+  {
+    "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "name": "Llama 4 Scout 17B",
+    "provider": "groq",
+    "parameterSize": "17B",
+    "quantization": "none",
+    "category": "general",
+    "minTier": "small",
+    "recommendedTier": "small",
+    "ramRequired": 0,
+    "description": "Meta's Llama 4 Scout at Groq speed",
+    "tags": ["tool-calling", "cloud"],
     "featured": false
   },
   {

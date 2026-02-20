@@ -57,7 +57,7 @@ struct MCPSettingsView: View {
                 HStack {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("Could not load curated servers.")
+                    Text("Could not load recommended plugins. Check your internet connection.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -77,7 +77,7 @@ struct MCPSettingsView: View {
     private var customServersSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Your Servers")
+                Text("Your Plugins")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)

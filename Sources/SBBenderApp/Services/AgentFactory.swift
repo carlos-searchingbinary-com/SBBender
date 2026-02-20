@@ -9,7 +9,8 @@ struct AgentFactory {
         customTools: [Tool] = [],
         storage: GRDBStorage? = nil,
         knowledge: (any KnowledgeSource)? = nil,
-        learning: LearningEngine? = nil
+        learning: LearningEngine? = nil,
+        mlxProviderCache: UnsafeMutablePointer<[String: MLXProvider]>? = nil
     ) -> Agent {
         // Resolve instructions: load from file if set, otherwise use config text
         var instructions = config.instructions
@@ -19,10 +20,22 @@ struct AgentFactory {
             }
         }
 
-        let provider = createProvider(
-            type: ProviderType(rawValue: config.providerType) ?? .mlx,
-            modelID: config.modelID
-        )
+        let providerType = ProviderType(rawValue: config.providerType) ?? .mlx
+        let provider: any ModelProvider
+
+        // Reuse cached MLXProvider so the loaded model stays in GPU memory across agent resets
+        if providerType == .mlx, let cache = mlxProviderCache {
+            let modelID = config.modelID
+            if let existing = cache.pointee[modelID] {
+                provider = existing
+            } else {
+                let newProvider = MLXProvider(modelID: modelID)
+                cache.pointee[modelID] = newProvider
+                provider = newProvider
+            }
+        } else {
+            provider = createProvider(type: providerType, modelID: config.modelID)
+        }
 
         let generationConfig = GenerationConfig(
             maxTokens: config.maxTokens,

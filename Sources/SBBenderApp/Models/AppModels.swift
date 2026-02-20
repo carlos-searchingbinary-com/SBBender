@@ -9,6 +9,7 @@ enum SidebarItem: Hashable {
     case dashboard
     case agents
     case agentChat(String)
+    case agentConversation(agentID: String, sessionID: String)
     case teams
     case teamWorkspace(String)
     case marketplace

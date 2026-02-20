@@ -501,7 +501,7 @@ struct AgentBuilderSheet: View {
                     Text("Uses Apple Intelligence (macOS 26+)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Label("Apple Intelligence does not support tool calling. Agent tools will not work.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Apple Intelligence does not support actions. Your assistant's capabilities will be limited.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -595,7 +595,7 @@ struct AgentBuilderSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
             } else {
                 TextEditor(text: $instructions)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.body)
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .frame(minHeight: 100, maxHeight: 160)

@@ -87,7 +87,15 @@ public struct AgentConfiguration: Sendable {
         }
 
         if let knowledge = knowledgeContext, !knowledge.isEmpty {
-            parts.append("## Relevant Knowledge\n\(knowledge)")
+            parts.append("""
+            ## Relevant Knowledge
+            The following excerpts were retrieved from the user's documents. \
+            Each excerpt is prefixed with its source in brackets (document name, page, and section). \
+            Always cite these sources in your response using the exact source label shown (e.g. "According to [FileName.pdf, p3, section 2]..."). \
+            Do not omit citations even for short answers.
+
+            \(knowledge)
+            """)
         }
 
         if let learning = learningContext, !learning.isEmpty {

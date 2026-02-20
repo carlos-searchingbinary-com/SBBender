@@ -34,7 +34,7 @@ struct MCPServersView: View {
                                         .lineLimit(1)
                                 }
                                 if !server.environment.isEmpty {
-                                    Text("\(server.environment.count) env vars")
+                                    Text("\(server.environment.count) settings")
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }

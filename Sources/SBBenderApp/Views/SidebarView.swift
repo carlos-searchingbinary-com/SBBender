@@ -4,6 +4,7 @@ import SBBender
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @State private var activeSessionIDs: Set<String> = []
+    @State private var agentSessions: [String: [SessionSummary]] = [:]
 
     var body: some View {
         @Bindable var state = appState
@@ -16,8 +17,8 @@ struct SidebarView: View {
                     Label("My Assistants", systemImage: "brain.head.profile")
                         .tag(SidebarItem.agents)
 
-                    // Active agent chats — always visible
                     ForEach(appState.agents) { agent in
+                        // Agent row
                         Label {
                             HStack(spacing: 6) {
                                 Text(agent.name)
@@ -33,6 +34,24 @@ struct SidebarView: View {
                                 .font(.caption)
                         }
                         .tag(SidebarItem.agentChat(agent.id))
+
+                        // Last 3 conversations nested below the agent
+                        if let sessions = agentSessions[agent.id] {
+                            ForEach(sessions) { session in
+                                Label {
+                                    Text(session.title)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                        .foregroundStyle(.secondary)
+                                } icon: {
+                                    Image(systemName: "bubble.left")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .tag(SidebarItem.agentConversation(agentID: agent.id, sessionID: session.id))
+                                .padding(.leading, 14)
+                            }
+                        }
                     }
                 }
                 Section("Teams") {
@@ -75,15 +94,20 @@ struct SidebarView: View {
     private func loadActiveSessions() async {
         guard let storage = await appState.persistence?.storage else { return }
         var ids: Set<String> = []
+        var sessionMap: [String: [SessionSummary]] = [:]
+
         for agent in appState.agents {
             do {
-                if let session = try await storage.getSession(id: agent.id),
-                   !session.messages.isEmpty {
-                    ids.insert(agent.id)
+                let sessions = try await storage.listSessions(agentID: agent.id)
+                if !sessions.isEmpty { ids.insert(agent.id) }
+                sessionMap[agent.id] = sessions.prefix(3).map { s in
+                    SessionSummary(id: s.id, title: s.title, updatedAt: s.updatedAt)
                 }
             } catch {}
         }
+
         activeSessionIDs = ids
+        agentSessions = sessionMap
     }
 
     @ViewBuilder
@@ -95,6 +119,8 @@ struct SidebarView: View {
             AgentListView()
         case .agentChat(let id):
             AgentChatView(agentID: id)
+        case .agentConversation(let agentID, let sessionID):
+            AgentChatView(agentID: agentID, initialSessionID: sessionID)
         case .teams:
             TeamListView()
         case .teamWorkspace(let id):

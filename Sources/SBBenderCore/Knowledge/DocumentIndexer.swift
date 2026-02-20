@@ -545,8 +545,23 @@ public actor DocumentIndexer: KnowledgeSource {
         public let maxConnections: Int
         public let efConstruction: Int
         public let searchEF: Int
-        public let hybridWeight: Float // 0 = pure BM25, 1 = pure vector
+        /// Legacy weight parameter — kept for backward compatibility with persisted configs.
+        /// No longer used by the scoring algorithm, which now uses Reciprocal Rank Fusion (RRF).
+        public let hybridWeight: Float
         public let storeEmbeddings: Bool // false = LEANN-style recompute on demand
+
+        /// When true, a second-pass NLEmbedding cosine similarity reranker is applied
+        /// after initial RRF retrieval. Improves precision at a small latency cost.
+        public let enableReranking: Bool
+
+        /// Fetch this many times `limit` during initial retrieval, then rerank down to `limit`.
+        /// Higher values give the reranker more candidates to choose from.
+        public let initialRetrievalMultiplier: Int
+
+        /// Per-year recency decay applied to older document versions within the same family.
+        /// Newer documents score 1.0; each year of age multiplies the score by this factor.
+        /// Range: (0, 1]. Default 0.88 means a 2-year-old doc scores ~0.77 vs. the latest.
+        public let recencyDecayPerYear: Double
 
         public init(
             chunkingStrategy: ChunkingStrategy = .fixedSize(size: 256, overlap: 32),
@@ -554,7 +569,10 @@ public actor DocumentIndexer: KnowledgeSource {
             efConstruction: Int = 64,
             searchEF: Int = 32,
             hybridWeight: Float = 0.7,
-            storeEmbeddings: Bool = true
+            storeEmbeddings: Bool = true,
+            enableReranking: Bool = true,
+            initialRetrievalMultiplier: Int = 4,
+            recencyDecayPerYear: Double = 0.88
         ) {
             self.chunkingStrategy = chunkingStrategy
             self.maxConnections = maxConnections
@@ -562,6 +580,9 @@ public actor DocumentIndexer: KnowledgeSource {
             self.searchEF = searchEF
             self.hybridWeight = hybridWeight
             self.storeEmbeddings = storeEmbeddings
+            self.enableReranking = enableReranking
+            self.initialRetrievalMultiplier = initialRetrievalMultiplier
+            self.recencyDecayPerYear = recencyDecayPerYear
         }
     }
 
@@ -573,12 +594,42 @@ public actor DocumentIndexer: KnowledgeSource {
     private var bm25: BM25Index?
     private var isBuilt: Bool = false
 
+    /// Maps sourceID → parsed document date, populated during buildIndex() from chunk metadata.
+    private var documentDates: [String: Date] = [:]
+
     /// Optional persistence backend for saving/loading index state.
     public var persistence: (any KnowledgeIndexPersistence)?
 
     /// Set the persistence backend (convenience for actor isolation).
     public func setPersistence(_ backend: any KnowledgeIndexPersistence) {
         persistence = backend
+    }
+
+    /// Optional contextual enricher.  When set, each chunk is enriched with a
+    /// context description (and entity metadata) before embedding and BM25 indexing.
+    /// This implements Anthropic's Contextual Retrieval technique.
+    public var contextualEnricher: ContextualEnricher?
+
+    /// Set the contextual enricher (convenience for actor isolation).
+    public func setContextualEnricher(_ enricher: ContextualEnricher?) {
+        contextualEnricher = enricher
+    }
+
+    /// Closure type for HyDE (Hypothetical Document Embeddings).
+    ///
+    /// Receives the user query and returns a short hypothetical passage that would
+    /// answer it — written in the style of the indexed documents.  The passage is
+    /// embedded and searched alongside the original query for a significant recall boost.
+    /// Return `nil` or an empty string to skip HyDE for a particular query.
+    public typealias HyDEGenerator = @Sendable (String) async -> String?
+
+    /// Optional HyDE generator.  When set, ``hybridSearch(query:limit:)`` generates a
+    /// hypothetical answer, embeds it, and merges the result into RRF as a third signal.
+    public var hydeGenerator: HyDEGenerator?
+
+    /// Set the HyDE generator (convenience for actor isolation).
+    public func setHyDEGenerator(_ generator: HyDEGenerator?) {
+        hydeGenerator = generator
     }
 
     /// Optional callback for ingestion progress updates.
@@ -633,8 +684,50 @@ public actor DocumentIndexer: KnowledgeSource {
     public func buildIndex() async throws {
         guard !chunks.isEmpty else { return }
 
-        let texts = chunks.map(\.content)
-        let total = texts.count
+        // CONTEXTUAL ENRICHMENT — run before embedding so that both the HNSW
+        // vectors and the BM25 index are built from context-prefixed text.
+        let enrichedTexts: [String]
+        if let enricher = contextualEnricher {
+            // Reconstruct each document's full text from its chunks so the enricher
+            // can use it as a context window for the LLM generator (or fallback).
+            var docContents: [String: String] = [:]
+            for chunk in chunks {
+                docContents[chunk.sourceID, default: ""] += chunk.content + "\n"
+            }
+
+            var enriched: [EnrichedChunk] = []
+            enriched.reserveCapacity(chunks.count)
+            for (i, chunk) in chunks.enumerated() {
+                let docContent = docContents[chunk.sourceID] ?? ""
+                let ec = await enricher.enrich(
+                    chunk: chunk,
+                    documentContent: docContent,
+                    allChunks: chunks
+                )
+                enriched.append(ec)
+
+                // Store context description and entities back into the chunk's
+                // metadata so they are available at search/citation time.
+                var newMeta = chunk.metadata
+                newMeta["contextDescription"] = ec.contextDescription
+                if !ec.entities.isEmpty {
+                    newMeta["entities"] = ec.entities.joined(separator: ", ")
+                }
+                chunks[i] = DocumentChunk(
+                    id: chunk.id,
+                    content: chunk.content,
+                    sourceID: chunk.sourceID,
+                    sourceTitle: chunk.sourceTitle,
+                    chunkIndex: chunk.chunkIndex,
+                    metadata: newMeta
+                )
+            }
+            enrichedTexts = enriched.map(\.enrichedContent)
+        } else {
+            enrichedTexts = chunks.map(\.content)
+        }
+
+        let total = enrichedTexts.count
 
         // 1. Compute embeddings in batches with progress
         onProgress?(IngestionProgress(phase: .embedding(current: 0, total: total)))
@@ -644,7 +737,7 @@ public actor DocumentIndexer: KnowledgeSource {
 
         for batchStart in stride(from: 0, to: total, by: batchSize) {
             let batchEnd = min(batchStart + batchSize, total)
-            let batch = Array(texts[batchStart..<batchEnd])
+            let batch = Array(enrichedTexts[batchStart..<batchEnd])
             let batchEmbeddings = try await embeddingProvider.embed(batch)
             allEmbeddings.append(contentsOf: batchEmbeddings)
             onProgress?(IngestionProgress(phase: .embedding(current: batchEnd, total: total)))
@@ -655,7 +748,10 @@ public actor DocumentIndexer: KnowledgeSource {
         await graph.build(vectors: allEmbeddings)
 
         // 3. Build BM25 index
-        bm25 = BM25Index(documents: texts)
+        bm25 = BM25Index(documents: enrichedTexts)
+
+        // 4. Compute and stamp recency scores into chunk metadata
+        computeRecencyScores()
 
         isBuilt = true
         onProgress?(IngestionProgress(phase: .done))
@@ -732,51 +828,296 @@ public actor DocumentIndexer: KnowledgeSource {
 
     // MARK: - Search
 
-    /// Hybrid search combining vector similarity and BM25 keyword relevance.
+    /// Hybrid search combining HNSW vector recall and BM25 keyword recall via Reciprocal Rank Fusion.
+    ///
+    /// RRF replaces the former linear score blend. It is more robust to score-scale differences
+    /// between the two retrievers because it works on ranks, not raw scores. The formula is:
+    ///   `rrfScore(d) = Σ 1 / (k + rank_i(d))`  where k = 60 (standard constant).
+    ///
+    /// After RRF ranking an optional NLEmbedding cosine-similarity reranker refines the top
+    /// candidates (controlled by `config.enableReranking`). A recency boost is then applied
+    /// for documents that carry `documentDate` metadata, and same-section chunks from older
+    /// versions of the same document family are deduplicated from the final result set.
     public func hybridSearch(query: String, limit: Int = 5) async throws -> [DocumentChunk] {
         if !isBuilt { try await buildIndex() }
         guard !chunks.isEmpty else { return [] }
 
-        // Vector search
+        // ── 0. HyDE: generate a hypothetical answer and embed it ─────────────────
+        // The hypothesis lives in the same embedding space as real document chunks,
+        // so searching with it dramatically improves recall for factual queries where
+        // the user's vocabulary differs from the indexed text.
+        var hydeVec: [Float]? = nil
+        if let generator = hydeGenerator {
+            let hypothesis = await generator(query)
+            if let hyp = hypothesis, !hyp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let hydeEmbedding = try await embeddingProvider.embed([hyp])
+                hydeVec = hydeEmbedding.first
+                Log.tool.debug("HyDE hypothesis generated (\(hyp.count) chars)")
+            }
+        }
+
+        // ── 1. Vector recall via HNSW ────────────────────────────────────────────
         let queryEmbedding = try await embeddingProvider.embed([query])
         guard let qVec = queryEmbedding.first else { return [] }
 
-        let graphResults = await graph.search(query: qVec, k: min(limit * 3, chunks.count), ef: config.searchEF)
+        // Fetch enough HNSW candidates to feed both RRF and the reranker.
+        let rrfCandidateCount = min(limit * 3, chunks.count)
+        let graphResults = await graph.search(query: qVec, k: rrfCandidateCount, ef: config.searchEF)
 
-        // BM25 search
+        // HyDE HNSW search (separate pass with hypothesis embedding).
+        var hydeGraphResults: [(id: Int, distance: Float)] = []
+        if let hVec = hydeVec {
+            hydeGraphResults = await graph.search(query: hVec, k: rrfCandidateCount, ef: config.searchEF)
+        }
+
+        // ── 2. BM25 recall ───────────────────────────────────────────────────────
         let bm25Scores = bm25?.score(query: query) ?? Array(repeating: 0.0, count: chunks.count)
 
-        // Normalize scores
-        let maxGraphDist = max(graphResults.last?.distance ?? 0.001, 0.001)
-        let maxBM25 = max(bm25Scores.max() ?? 0.001, 0.001)
+        // ── 3. Reciprocal Rank Fusion ────────────────────────────────────────────
+        // k = 60 is the standard RRF constant that balances precision/recall trade-offs.
+        let rrfK: Double = 60
 
-        // Combine: for each candidate from graph search, compute hybrid score
-        var scored: [(Int, Float)] = []
-        for (id, dist) in graphResults {
-            let vectorScore = 1.0 - Float(dist) / Float(max(maxGraphDist, 0.001))
-            let keywordScore = Float(bm25Scores[id] / max(maxBM25, 0.001))
-            let hybrid = config.hybridWeight * vectorScore + (1 - config.hybridWeight) * keywordScore
-            scored.append((id, hybrid))
+        // Build vector rank map: chunkIndex → rank (0 = closest).
+        var vectorRank: [Int: Int] = [:]
+        for (rank, result) in graphResults.enumerated() {
+            vectorRank[result.id] = rank
         }
 
-        // Also check top BM25 results not in graph results
-        let graphIDs = Set(graphResults.map(\.id))
-        let topBM25 = bm25Scores.enumerated()
+        // Build HyDE rank map.
+        var hydeRank: [Int: Int] = [:]
+        for (rank, result) in hydeGraphResults.enumerated() {
+            hydeRank[result.id] = rank
+        }
+
+        // Build BM25 rank map by sorting all chunks by BM25 score descending.
+        let bm25Ranked = bm25Scores.enumerated()
             .sorted { $0.element > $1.element }
-            .prefix(limit * 2)
-            .filter { !graphIDs.contains($0.offset) }
-
-        for (idx, score) in topBM25 {
-            let keywordScore = Float(score / max(maxBM25, 0.001))
-            let hybrid = (1 - config.hybridWeight) * keywordScore
-            scored.append((idx, hybrid))
+            .map(\.offset) // ordered list of chunk indices, best first
+        var bm25Rank: [Int: Int] = [:]
+        for (rank, idx) in bm25Ranked.enumerated() {
+            bm25Rank[idx] = rank
         }
 
-        // Sort by hybrid score descending, return top results
-        return scored
-            .sorted { $0.1 > $1.1 }
-            .prefix(limit)
-            .map { chunks[$0.0] }
+        // Missing-list penalty: a chunk absent from one list gets rank = totalChunks.
+        // This is the standard RRF treatment — it still contributes, just weakly.
+        let totalChunks = chunks.count
+
+        // Collect the union of all candidates from all lists.
+        var candidateSet = Set<Int>(graphResults.map(\.id))
+        candidateSet.formUnion(hydeGraphResults.map(\.id))
+        // Also include top BM25 hits not already in the vector result set so that
+        // pure-keyword matches can still surface via RRF.
+        for idx in bm25Ranked.prefix(limit * 2) {
+            candidateSet.insert(idx)
+        }
+
+        let hydeEnabled = hydeVec != nil
+
+        // Compute RRF score for each candidate, then apply recency boost.
+        var rrfScored: [(index: Int, score: Double)] = candidateSet.map { idx in
+            let vr = Double(vectorRank[idx] ?? totalChunks)
+            let br = Double(bm25Rank[idx] ?? totalChunks)
+            var score = 1.0 / (rrfK + vr) + 1.0 / (rrfK + br)
+            // Add HyDE signal when available — third independent rank list.
+            if hydeEnabled {
+                let hr = Double(hydeRank[idx] ?? totalChunks)
+                score += 1.0 / (rrfK + hr)
+            }
+
+            // Recency boost: multiply by the pre-computed recencyScore (0 < x ≤ 1.0).
+            // Chunks without a documentDate metadata key default to 0.95 (slight penalty
+            // vs. dated docs so users are nudged to add dates to their documents).
+            let recencyScore = chunks[idx].metadata["recencyScore"].flatMap(Double.init) ?? 0.95
+            score *= recencyScore
+
+            return (index: idx, score: score)
+        }
+
+        rrfScored.sort { $0.score > $1.score }
+
+        // ── 4. Optional reranking ────────────────────────────────────────────────
+        let candidatesForReranking: Int
+        if config.enableReranking {
+            candidatesForReranking = min(limit * config.initialRetrievalMultiplier, rrfScored.count)
+        } else {
+            candidatesForReranking = min(limit, rrfScored.count)
+        }
+
+        let topCandidateChunks = rrfScored.prefix(candidatesForReranking).map { chunks[$0.index] }
+
+        let reranked: [DocumentChunk]
+        if config.enableReranking && topCandidateChunks.count > limit {
+            reranked = await rerank(query: query, chunks: Array(topCandidateChunks), limit: limit)
+        } else {
+            reranked = Array(topCandidateChunks.prefix(limit))
+        }
+
+        // ── 5. Family deduplication ──────────────────────────────────────────────
+        // When the same document section (same family + chunkIndex) appears from multiple
+        // versions, keep only the highest-ranked one (already sorted by recency-boosted score).
+        var seenFamilySection = Set<String>()
+        var deduplicated: [DocumentChunk] = []
+        for chunk in reranked {
+            let family = chunk.metadata["documentFamily"] ?? ""
+            // Key = family:chunkIndex — identifies the same *section* across versions.
+            // Empty family means we can't group, so use the unique chunk id to pass through.
+            let sectionKey = family.isEmpty ? chunk.id : "\(family):\(chunk.chunkIndex)"
+            if seenFamilySection.insert(sectionKey).inserted {
+                deduplicated.append(chunk)
+            }
+            if deduplicated.count >= limit { break }
+        }
+
+        return deduplicated
+    }
+
+    // MARK: - Private: Reranker
+
+    /// Second-pass reranker using exact NLEmbedding cosine similarity.
+    ///
+    /// HNSW search is approximate; this pass uses the full NLEmbedding vector to compute
+    /// exact cosine similarity between the query and each candidate chunk, providing a more
+    /// precise relevance signal at the cost of O(n) embedding lookups (n = candidateCount).
+    private func rerank(query: String, chunks: [DocumentChunk], limit: Int) async -> [DocumentChunk] {
+        guard let embedding = NLEmbedding.sentenceEmbedding(for: .english) else {
+            return Array(chunks.prefix(limit))
+        }
+        guard let queryVec = embedding.vector(for: query) else {
+            return Array(chunks.prefix(limit))
+        }
+
+        // Score each chunk by cosine similarity to the query.
+        // Use the contextDescription prefix when available (Contextual RAG), because that
+        // text was specifically generated to describe the chunk's role in its document and
+        // tends to encode query-relevant vocabulary more densely than raw chunk text alone.
+        let scored: [(DocumentChunk, Float)] = chunks.compactMap { chunk in
+            let text: String
+            if let ctx = chunk.metadata["contextDescription"], !ctx.isEmpty {
+                // Combine context with chunk text (capped to keep embedding quality high).
+                text = ctx + " " + String(chunk.content.prefix(400))
+            } else {
+                text = String(chunk.content.prefix(500))
+            }
+            guard let chunkVec = embedding.vector(for: text) else { return nil }
+            let similarity = cosineSimilarity(queryVec.map { Float($0) }, chunkVec.map { Float($0) })
+            return (chunk, similarity)
+        }
+
+        return scored.sorted { $0.1 > $1.1 }.prefix(limit).map(\.0)
+    }
+
+    /// Cosine similarity between two equal-length Float vectors.
+    private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        let dot = zip(a, b).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+        let magA = sqrt(a.reduce(Float(0)) { $0 + $1 * $1 })
+        let magB = sqrt(b.reduce(Float(0)) { $0 + $1 * $1 })
+        guard magA > 0, magB > 0 else { return 0 }
+        return dot / (magA * magB)
+    }
+
+    // MARK: - Private: Recency Scoring
+
+    /// Reads `documentDate` and `documentFamily` metadata from all chunks and stamps a
+    /// `recencyScore` (0 < x ≤ 1.0) back into each chunk's metadata.
+    ///
+    /// Algorithm:
+    /// 1. Parse `documentDate` (ISO8601) for every sourceID.
+    /// 2. Group sourceIDs by their `documentFamily`.
+    /// 3. Within each family, rank documents newest-first. The newest gets 1.0;
+    ///    each year of age applies `config.recencyDecayPerYear` multiplicatively.
+    /// 4. Chunks with no `documentDate` receive 0.95 — a small penalty that nudges
+    ///    users to provide dated documents without outright suppressing undated ones.
+    private func computeRecencyScores() {
+        let iso = ISO8601DateFormatter()
+        let now = Date()
+        let secondsPerYear: Double = 365.25 * 24 * 3600
+
+        // ── Collect one date per sourceID ────────────────────────────────────────
+        // A sourceID (UUID) maps to one logical document at ingest time.
+        // We use the first dated chunk we see for that sourceID.
+        var sourceIDToDate: [String: Date] = [:]
+        var sourceIDToFamily: [String: String] = [:]
+
+        for chunk in chunks {
+            let sid = chunk.sourceID
+            if sourceIDToDate[sid] == nil,
+               let dateStr = chunk.metadata["documentDate"],
+               let date = iso.date(from: dateStr) {
+                sourceIDToDate[sid] = date
+            }
+            if sourceIDToFamily[sid] == nil,
+               let family = chunk.metadata["documentFamily"], !family.isEmpty {
+                sourceIDToFamily[sid] = family
+            }
+        }
+
+        // Store for potential future use (e.g. citations).
+        documentDates = sourceIDToDate
+
+        // ── Group by family and compute per-sourceID recency scores ──────────────
+        // familyToSourceIDs: family → set of sourceIDs that belong to that family
+        var familyToSourceIDs: [String: [String]] = [:]
+        for (sid, family) in sourceIDToFamily {
+            familyToSourceIDs[family, default: []].append(sid)
+        }
+
+        var sourceIDRecencyScore: [String: Double] = [:]
+
+        for (_, sourceIDs) in familyToSourceIDs {
+            // Sort newest first; undated sources go to the end.
+            let sorted = sourceIDs.sorted { a, b in
+                let da = sourceIDToDate[a] ?? .distantPast
+                let db = sourceIDToDate[b] ?? .distantPast
+                return da > db
+            }
+
+            // Identify the newest dated source to anchor relative scoring.
+            let newestDate = sorted.compactMap { sourceIDToDate[$0] }.first ?? now
+
+            for sid in sorted {
+                if let date = sourceIDToDate[sid] {
+                    // Age in fractional years relative to the newest document in the family.
+                    let ageSecs = newestDate.timeIntervalSince(date)
+                    let ageYears = max(ageSecs / secondsPerYear, 0)
+                    let score = pow(config.recencyDecayPerYear, ageYears)
+                    sourceIDRecencyScore[sid] = score
+                } else {
+                    // Undated: slight penalty vs. a freshly-dated document.
+                    sourceIDRecencyScore[sid] = 0.95
+                }
+            }
+        }
+
+        // ── Stamp recencyScore into every chunk ──────────────────────────────────
+        for i in chunks.indices {
+            let sid = chunks[i].sourceID
+            guard let score = sourceIDRecencyScore[sid] else { continue }
+
+            // Also tag whether this source is the newest in its family so citations
+            // can display "← latest" or "← superseded" labels.
+            let family = sourceIDToFamily[sid] ?? ""
+            let isLatest: Bool
+            if !family.isEmpty,
+               let familySources = familyToSourceIDs[family],
+               let latestSid = familySources.sorted(by: { (sourceIDToDate[$0] ?? .distantPast) > (sourceIDToDate[$1] ?? .distantPast) }).first {
+                isLatest = latestSid == sid
+            } else {
+                isLatest = true // No family context — treat as latest.
+            }
+
+            var newMeta = chunks[i].metadata
+            newMeta["recencyScore"] = String(format: "%.4f", score)
+            newMeta["isLatestVersion"] = isLatest ? "true" : "false"
+            chunks[i] = DocumentChunk(
+                id: chunks[i].id,
+                content: chunks[i].content,
+                sourceID: chunks[i].sourceID,
+                sourceTitle: chunks[i].sourceTitle,
+                chunkIndex: chunks[i].chunkIndex,
+                metadata: newMeta
+            )
+        }
     }
 
     // MARK: - KnowledgeSource Conformance
@@ -982,6 +1323,150 @@ public struct DocumentLoader: Sendable {
         }
 
         return results
+    }
+
+    // MARK: - Document Versioning Helpers
+
+    /// Attempt to extract the document's effective date from its filename or first-page text.
+    ///
+    /// Resolution order:
+    /// 1. Filename date patterns (ISO, year-quarter, year-month, bare year).
+    /// 2. Common "effective / updated / dated" prefixes in the first 1000 characters of text.
+    /// 3. File modification date from the filesystem (final fallback).
+    ///
+    /// Returns `nil` only if no date signal is found anywhere.
+    public static func extractDocumentDate(
+        from filename: String,
+        firstPageText: String,
+        fileURL: URL? = nil
+    ) -> Date? {
+        let calendar = Calendar.current
+        let basename = (filename as NSString).lastPathComponent
+
+        // ── 1. Filename patterns ─────────────────────────────────────────────────
+        // Try full ISO date first, then progressively coarser patterns.
+        struct FilenamePattern {
+            let regex: String
+            let parse: (String) -> Date?
+        }
+
+        let filenamePatterns: [FilenamePattern] = [
+            // 2024-01-15 or 2024_01_15
+            FilenamePattern(regex: #"(\d{4})[-_](\d{2})[-_](\d{2})"#) { matched in
+                let parts = matched.components(separatedBy: CharacterSet(charactersIn: "-_"))
+                guard parts.count >= 3,
+                      let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+                var comps = DateComponents(); comps.year = y; comps.month = m; comps.day = d
+                return calendar.date(from: comps)
+            },
+            // 2024-Q1 or 2024_Q3
+            FilenamePattern(regex: #"(\d{4})[-_](Q[1-4])"#) { matched in
+                let parts = matched.components(separatedBy: CharacterSet(charactersIn: "-_"))
+                guard parts.count >= 2, let year = Int(parts[0]) else { return nil }
+                let qStr = parts[1].uppercased()
+                let month: Int
+                switch qStr {
+                case "Q1": month = 1
+                case "Q2": month = 4
+                case "Q3": month = 7
+                case "Q4": month = 10
+                default: return nil
+                }
+                var comps = DateComponents(); comps.year = year; comps.month = month; comps.day = 1
+                return calendar.date(from: comps)
+            },
+            // 2024-01 or 2024_12
+            FilenamePattern(regex: #"(\d{4})[-_](\d{2})(?![-_\d])"#) { matched in
+                let parts = matched.components(separatedBy: CharacterSet(charactersIn: "-_"))
+                guard parts.count >= 2,
+                      let y = Int(parts[0]), let m = Int(parts[1]),
+                      m >= 1, m <= 12 else { return nil }
+                var comps = DateComponents(); comps.year = y; comps.month = m; comps.day = 1
+                return calendar.date(from: comps)
+            },
+            // Bare 4-digit year between 1990 and 2099
+            FilenamePattern(regex: #"(?<!\d)((?:19|20)\d{2})(?!\d)"#) { matched in
+                guard let year = Int(matched), year >= 1990, year <= 2099 else { return nil }
+                var comps = DateComponents(); comps.year = year; comps.month = 1; comps.day = 1
+                return calendar.date(from: comps)
+            },
+        ]
+
+        for pattern in filenamePatterns {
+            if let range = basename.range(of: pattern.regex, options: .regularExpression),
+               let date = pattern.parse(String(basename[range])) {
+                return date
+            }
+        }
+
+        // ── 2. First-page text prefixes ──────────────────────────────────────────
+        let snippet = String(firstPageText.prefix(1_000))
+        let nsSnippet = snippet as NSString
+
+        // Matches patterns like "Effective date: January 2025", "Updated: 2024-01-15",
+        // "Dated: March 5, 2024", "Issued: 2024-Q2", etc.
+        let textPatternStr = #"(?:effective|updated|dated?|published|issued|revised)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|[A-Za-z]+\s+\d{4}|\d{4}[-/]\d{2}[-/]\d{2}|\d{4}[-_]Q[1-4])"#
+        if let regex = try? NSRegularExpression(pattern: textPatternStr, options: .caseInsensitive),
+           let match = regex.firstMatch(in: snippet, range: NSRange(location: 0, length: nsSnippet.length)),
+           match.numberOfRanges > 1 {
+            let dateStr = nsSnippet.substring(with: match.range(at: 1))
+            let formatters = ["MMMM d, yyyy", "MMMM d yyyy", "MMMM yyyy", "MMM d, yyyy",
+                              "MMM d yyyy", "MMM yyyy", "yyyy-MM-dd", "yyyy/MM/dd"]
+            for fmt in formatters {
+                let f = DateFormatter()
+                f.locale = Locale(identifier: "en_US_POSIX")
+                f.dateFormat = fmt
+                if let d = f.date(from: dateStr) { return d }
+            }
+        }
+
+        // ── 3. File modification date fallback ───────────────────────────────────
+        if let url = fileURL,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let mtime = attrs[.modificationDate] as? Date {
+            return mtime
+        }
+
+        return nil
+    }
+
+    /// Derive a stable "family name" from a filename by stripping version tokens,
+    /// dates, and normalizing whitespace/case.
+    ///
+    /// Documents in the same family share semantically equivalent content across versions.
+    /// Example: "Contract_v2_2024-01.pdf" and "Contract_final_2025.pdf" → "contract".
+    public static func extractDocumentFamily(from filename: String) -> String {
+        var name = ((filename as NSString).lastPathComponent as NSString).deletingPathExtension
+
+        // Strip common version tokens and date patterns.
+        let patterns = [
+            #"\bv\d+(\.\d+)*\b"#,                    // v1, v2.1, v10
+            #"\b(final|draft|updated|revised|copy|old|new|backup|temp|latest|current)\b"#,
+            #"\b(?:19|20)\d{2}[-_]?(?:Q[1-4]|H[12])?\b"#, // years, year-quarter, year-half
+            #"\b\d{2}[-_]\d{2}[-_]\d{4}\b"#,          // MM-DD-YYYY
+            #"\b\d{4}[-_]\d{2}[-_]\d{2}\b"#,          // YYYY-MM-DD
+            #"\b\d{4}[-_]\d{2}\b"#,                   // YYYY-MM
+            #"[-_]+"#,                                 // remaining separators → spaces
+        ]
+
+        for pattern in patterns {
+            name = name.replacingOccurrences(
+                of: pattern,
+                with: " ",
+                options: .regularExpression,
+                range: nil
+            )
+        }
+
+        // Normalize: collapse spaces, trim, lowercase.
+        name = name
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+
+        return name.isEmpty ? "unknown" : name
     }
 
     /// Extract text content from PPTX slide XML by finding `<a:t>` elements.

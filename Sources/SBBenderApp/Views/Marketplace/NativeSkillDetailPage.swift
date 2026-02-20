@@ -22,13 +22,13 @@ struct NativeSkillDetailPage: View {
                 skillContent(skill)
             } else {
                 ContentUnavailableView(
-                    "Skill Not Found",
+                    "Capability Not Found",
                     systemImage: "questionmark.circle",
-                    description: Text("No skill with ID '\(skillID)' found.")
+                    description: Text("This capability could not be loaded.")
                 )
             }
         }
-        .navigationTitle(skill?.name ?? "Skill")
+        .navigationTitle(skill?.name ?? "Capability")
     }
 
     private func skillContent(_ skill: any NativeTool) -> some View {
@@ -47,10 +47,12 @@ struct NativeSkillDetailPage: View {
 
                             Divider()
 
-                            LabeledContent("Skill ID") {
-                                Text(skill.id)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
+                            if appState.showAdvancedFeatures {
+                                LabeledContent("Skill ID") {
+                                    Text(skill.id)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                }
                             }
                             if let category {
                                 LabeledContent("Category") {
@@ -82,27 +84,29 @@ struct NativeSkillDetailPage: View {
                         Label("Overview", systemImage: "info.circle")
                     }
 
-                    // Tool schema
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("When exposed as a tool, the model calls this skill with the following JSON schema:")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    // Tool schema (advanced only)
+                    if appState.showAdvancedFeatures {
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Technical details for how the AI interacts with this capability:")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
 
-                            let schema = skill.toolParameters
-                            if let data = try? JSONEncoder().encode(schema),
-                               let json = String(data: data, encoding: .utf8) {
-                                Text(prettyJSON(json))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .padding(8)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color(.textBackgroundColor).opacity(0.5))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                let schema = skill.toolParameters
+                                if let data = try? JSONEncoder().encode(schema),
+                                   let json = String(data: data, encoding: .utf8) {
+                                    Text(prettyJSON(json))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .padding(8)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(.textBackgroundColor).opacity(0.5))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
                             }
+                        } label: {
+                            Label("Technical Details", systemImage: "curlybraces")
                         }
-                    } label: {
-                        Label("Tool Parameters", systemImage: "curlybraces")
                     }
 
                     // Quick test
@@ -149,11 +153,11 @@ struct NativeSkillDetailPage: View {
                                 agent.enabledSkillIDs.isEmpty || agent.enabledSkillIDs.contains(skillID)
                             }
                             if usingAgents.isEmpty {
-                                Text("No agents are using this skill.")
+                                Text("No assistants are using this capability yet.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             } else {
-                                Text("\(usingAgents.count) agent\(usingAgents.count == 1 ? "" : "s") using this skill:")
+                                Text("\(usingAgents.count) assistant\(usingAgents.count == 1 ? "" : "s") using this:")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 ForEach(usingAgents) { agent in
@@ -186,7 +190,7 @@ struct NativeSkillDetailPage: View {
                 Button {
                     appState.selectedSidebarItem = .marketplace
                 } label: {
-                    Label("Back to Marketplace", systemImage: "chevron.left")
+                    Label("Back to Capability Store", systemImage: "chevron.left")
                         .font(.caption)
                 }
                 .buttonStyle(.plain)
@@ -225,7 +229,7 @@ struct NativeSkillDetailPage: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Text("Native Skill")
+                    Text("Built-in")
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
@@ -247,7 +251,8 @@ struct NativeSkillDetailPage: View {
         testOutput = nil
         do {
             let result = try await skill.execute(input: .text("Hello, this is a test input."))
-            testOutput = "Output: \(result.output)\nConfidence: \(result.confidence)\nLatency: \(String(format: "%.1f", result.latency * 1000))ms"
+            let confidencePercent = Int(result.confidence * 100)
+            testOutput = "Result: \(result.output)\nAccuracy: \(confidencePercent)%\nSpeed: \(String(format: "%.0f", result.latency * 1000))ms"
         } catch {
             testOutput = "Error: \(error.localizedDescription)"
         }

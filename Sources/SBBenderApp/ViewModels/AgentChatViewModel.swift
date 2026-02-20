@@ -308,12 +308,9 @@ final class AgentChatViewModel {
         }
     }
 
-    /// Auto-generate session title from first user message.
-    func updateSessionTitle(storage: (any StorageBackend)?, agentID: String) async {
+    /// Persist a session title (provided by the caller, e.g. LLM-generated or truncated fallback).
+    func updateSessionTitle(to title: String, storage: (any StorageBackend)?, agentID: String) async {
         guard let storage, let sid = currentSessionID else { return }
-        let firstUserMessage = messages.first(where: { $0.role == "user" })?.content ?? "New Chat"
-        let title = String(firstUserMessage.prefix(50))
-
         do {
             if var session = try await storage.getSession(id: sid) {
                 session.title = title

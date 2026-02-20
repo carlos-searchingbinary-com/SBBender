@@ -174,7 +174,7 @@ struct AgentWizardSheet: View {
             let config = try await generateConfig(description: description)
             previewConfig = config
         } catch {
-            errorMessage = "Generation failed: \(error.localizedDescription)"
+            errorMessage = "Something went wrong while generating the assistant. Please try again."
         }
 
         isGenerating = false

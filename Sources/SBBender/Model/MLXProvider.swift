@@ -30,11 +30,22 @@ public final class MLXProvider: @unchecked Sendable, ModelProvider {
 
     public init(
         modelID: String = "mlx-community/Qwen3-4B-4bit",
-        gpuCacheLimit: Int = 20 * 1024 * 1024,
+        gpuCacheLimit: Int = 0,  // 0 = auto-detect from GPU.deviceInfo()
         toolCallFormat: (any SBToolCallFormat)? = nil // Ignored — native detection used
     ) {
         self.modelID = modelID
-        self.gpuCacheLimit = gpuCacheLimit
+        if gpuCacheLimit > 0 {
+            self.gpuCacheLimit = gpuCacheLimit
+        } else {
+            // Auto-tune: 25% of GPU recommended working set, min 256 MB, max 4 GB.
+            // This avoids the default 20 MB which causes constant GPU memory churn.
+            let info = GPU.deviceInfo()
+            let workingSet = UInt64(info.maxRecommendedWorkingSetSize)
+            let quarter = workingSet / 4
+            let min256MB: UInt64 = 256 * 1024 * 1024
+            let max4GB:   UInt64 = 4 * 1024 * 1024 * 1024
+            self.gpuCacheLimit = Int(Swift.min(Swift.max(quarter, min256MB), max4GB))
+        }
     }
 
     public var isAvailable: Bool {

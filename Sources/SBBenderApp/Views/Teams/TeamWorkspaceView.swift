@@ -118,7 +118,7 @@ struct TeamWorkspaceView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     if result.toolCalls > 0 {
-                                        Text("\(result.toolCalls) tools")
+                                        Text("\(result.toolCalls) actions")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }

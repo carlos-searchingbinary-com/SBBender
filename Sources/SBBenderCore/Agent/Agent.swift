@@ -517,7 +517,50 @@ public actor Agent {
         let docs = try await knowledge.search(query: query, limit: 5)
         guard !docs.isEmpty else { return nil }
 
-        return docs.map { $0.content }.joined(separator: "\n\n---\n\n")
+        return docs.map { doc in
+            var parts: [String] = []
+            if let title = doc.metadata["sourceTitle"], !title.isEmpty {
+                parts.append(title)
+            }
+            if let page = doc.metadata["page"], !page.isEmpty {
+                var pageLabel = "p\(page)"
+                if let total = doc.metadata["totalPages"], !total.isEmpty {
+                    pageLabel += "/\(total)"
+                }
+                parts.append(pageLabel)
+            }
+            if let idx = doc.metadata["chunkIndex"], let n = Int(idx) {
+                parts.append("section \(n + 1)")
+            }
+
+            // Version-aware citation label: append document date and a version hint
+            // when multiple versions of the same document family are in the index.
+            if let dateStr = doc.metadata["documentDate"], !dateStr.isEmpty {
+                // Trim the ISO8601 timestamp to just the date portion for readability.
+                let displayDate = String(dateStr.prefix(10)) // "2024-01-15"
+                parts.append(displayDate)
+            }
+            if let family = doc.metadata["documentFamily"], !family.isEmpty {
+                let isLatest = doc.metadata["isLatestVersion"] == "true"
+                parts.append(isLatest ? "latest" : "superseded")
+            }
+
+            let header = parts.isEmpty ? "Source" : parts.joined(separator: ", ")
+
+            var lines: [String] = ["[\(header)]"]
+            // Include context description and entities when present (Contextual RAG).
+            if let ctx = doc.metadata["contextDescription"], !ctx.isEmpty {
+                lines.append("Context: \(ctx)")
+            }
+            if let ents = doc.metadata["entities"], !ents.isEmpty {
+                lines.append("Entities: \(ents)")
+            }
+            if doc.metadata["contextDescription"] != nil {
+                lines.append("---")
+            }
+            lines.append(doc.content)
+            return lines.joined(separator: "\n")
+        }.joined(separator: "\n\n---\n\n")
     }
 
     private func buildLearningContext() async throws -> String? {

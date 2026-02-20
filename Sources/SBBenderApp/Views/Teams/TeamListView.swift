@@ -13,9 +13,9 @@ struct TeamListView: View {
         ScrollView {
             if appState.agents.isEmpty {
                 ContentUnavailableView(
-                    "Create Agents First",
+                    "Create Assistants First",
                     systemImage: "brain.head.profile",
-                    description: Text("You need at least one agent before creating a team.")
+                    description: Text("You need at least one assistant before creating a team.")
                 )
             } else {
                 LazyVGrid(columns: columns, spacing: 16) {
